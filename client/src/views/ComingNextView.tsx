@@ -1,0 +1,3 @@
+import React from 'react';
+
+export const ComingNextView: React.FC<{ title: string }> = ({ title }) => <div className="mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center p-8 text-center"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">ProjectMentor</p><h1 className="mt-3 text-3xl font-black text-slate-900">{title}</h1><p className="mt-3 text-sm text-slate-500">This page is reserved for the next Mentor/Admin implementation prompt.</p><span className="mt-5 inline-flex rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">Coming next</span></div></div>;

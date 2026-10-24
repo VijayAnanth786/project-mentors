@@ -1,0 +1,15 @@
+import React from 'react';
+import { ExternalLink } from 'lucide-react';
+import { MockTeam } from '../data/mockData';
+import { useApp } from '../context/AppContext';
+import { StatusBadge } from '../components/shared';
+
+export const MentorTeamDetails: React.FC<{ team: MockTeam }> = ({ team }) => {
+  const { dashboardState } = useApp();
+  const project = dashboardState.projects.find((item) => item.id === team.projectId);
+  const leader = dashboardState.users.find((user) => user.id === team.leaderId);
+  const members = dashboardState.users.filter((user) => team.memberIds.includes(user.id));
+  const milestones = dashboardState.milestones.filter((milestone) => milestone.projectId === team.projectId);
+  const submissions = dashboardState.weeklySubmissions.filter((submission) => submission.teamId === team.id);
+  return <div className="space-y-5"><div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">Team details</p><h3 className="mt-1 text-xl font-black text-slate-900">{team.name}</h3><p className="mt-1 text-sm text-slate-500">Leader: {leader?.name || 'Not assigned'} · {members.length} members</p></div><div className="grid gap-4 sm:grid-cols-2"><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-bold text-slate-500">Project</p><p className="mt-1 text-sm font-bold text-slate-800">{project?.title}</p><p className="mt-1 text-xs text-slate-500">{project?.description}</p>{project?.repoUrl && <a href={project.repoUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600">Repository <ExternalLink className="h-3 w-3" /></a>}</div><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs font-bold text-slate-500">Members</p><ul className="mt-2 space-y-1 text-sm text-slate-700">{members.map((member) => <li key={member.id}>{member.name}{member.id === team.leaderId && <span className="ml-2 text-xs font-bold text-blue-600">Leader</span>}</li>)}</ul></div></div><div><h4 className="text-sm font-black text-slate-900">Milestones</h4><div className="mt-2 space-y-2">{milestones.map((milestone) => <div key={milestone.id} className="flex items-center justify-between rounded-lg border border-slate-100 p-3"><span className="text-xs font-semibold text-slate-700">{milestone.title} · {milestone.dueDate}</span><StatusBadge status={milestone.status} /></div>)}</div></div><div><h4 className="text-sm font-black text-slate-900">Weekly submissions and feedback</h4><div className="mt-2 space-y-2">{submissions.map((submission) => <div key={submission.id} className="rounded-lg border border-slate-100 p-3"><div className="flex items-center justify-between"><span className="text-xs font-bold text-slate-800">Week {submission.week} · {submission.date}</span><StatusBadge status={submission.status} /></div><p className="mt-1 text-xs text-slate-600">{submission.workCompleted}</p>{submission.feedback && <p className="mt-2 text-xs text-slate-500">Feedback: {submission.feedback}</p>}</div>)}</div></div></div>;
+};
