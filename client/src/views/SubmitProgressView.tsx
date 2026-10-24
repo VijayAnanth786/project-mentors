@@ -1,18 +1,145 @@
-import React, { useState } from 'react';
-import { UploadCloud, CheckCircle2, ArrowLeft, Github, Calendar } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import {
+  UploadCloud,
+  CheckCircle2,
+  ArrowLeft,
+  Github,
+  Calendar,
+  FileText,
+  Image as ImageIcon,
+  File,
+  Trash2,
+  X,
+  AlertCircle
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
+
+interface UploadedFileItem {
+  id: string;
+  name: string;
+  size: string;
+  type: 'pdf' | 'image' | 'ppt' | 'zip';
+  url: string;
+}
 
 export const SubmitProgressView: React.FC = () => {
   const { submitWeeklyProgress, setActiveView } = useApp();
 
   const [weekNumber, setWeekNumber] = useState('7');
-  const [completed, setCompleted] = useState('Completed authentication module and database schemas.\nIntegrated resume upload endpoint.');
-  const [currentWork, setCurrentWork] = useState('Working on AI parsing and model fine-tuning.');
-  const [blockers, setBlockers] = useState('PDF text stream parsing issue (getting empty string on certain formats).');
-  const [nextGoals, setNextGoals] = useState('Complete full integration test and connect frontend form.');
+  const [completed, setCompleted] = useState(
+    'Completed authentication module and database schemas.\nIntegrated resume upload endpoint.'
+  );
+  const [currentWork, setCurrentWork] = useState(
+    'Working on AI parsing and model fine-tuning.'
+  );
+  const [blockers, setBlockers] = useState(
+    'PDF text stream parsing issue (getting empty string on certain formats).'
+  );
+  const [nextGoals, setNextGoals] = useState(
+    'Complete full integration test and connect frontend form.'
+  );
   const [githubUrl, setGithubUrl] = useState('https://github.com/team5/resume-analyzer');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileItem[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    const kb = bytes / 1024;
+    if (kb < 1024) return kb.toFixed(1) + ' KB';
+    const mb = kb / 1024;
+    return mb.toFixed(1) + ' MB';
+  };
+
+  const detectFileType = (filename: string, mime: string): 'pdf' | 'image' | 'ppt' | 'zip' => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext) || mime.startsWith('image/')) {
+      return 'image';
+    }
+    if (['ppt', 'pptx'].includes(ext) || mime.includes('presentation') || mime.includes('powerpoint')) {
+      return 'ppt';
+    }
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext) || mime.includes('zip') || mime.includes('compressed')) {
+      return 'zip';
+    }
+    return 'pdf';
+  };
+
+  const processFiles = (fileList: FileList | File[]) => {
+    setUploadError(null);
+    const filesArray = Array.from(fileList);
+
+    for (const file of filesArray) {
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError(`"${file.name}" exceeds the 10MB limit (${formatFileSize(file.size)}).`);
+        return;
+      }
+    }
+
+    filesArray.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        setUploadedFiles((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            name: file.name,
+            size: formatFileSize(file.size),
+            type: detectFileType(file.name, file.type),
+            url: result
+          }
+        ]);
+      };
+      reader.onerror = () => {
+        setUploadError(`Failed to read "${file.name}".`);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const clearAllFiles = () => {
+    setUploadedFiles([]);
+    setUploadError(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +150,8 @@ export const SubmitProgressView: React.FC = () => {
       currentWork,
       blockers,
       nextWeekGoals: nextGoals,
-      githubUrl
+      githubUrl,
+      files: uploadedFiles.map(({ name, size, type, url }) => ({ name, size, type, url }))
     });
     setIsSubmitting(false);
     setShowSuccess(true);
@@ -142,17 +270,124 @@ export const SubmitProgressView: React.FC = () => {
             </div>
 
             {/* Drag & Drop Upload Files */}
-            <div>
-              <label className="text-slate-700 font-bold block mb-1.5">Upload Files (PDF, PPT, Images, etc.)</label>
-              <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/20 cursor-pointer transition-all space-y-2">
-                <UploadCloud className="w-8 h-8 text-blue-500 mx-auto" />
+            <div className="space-y-3">
+              <label className="text-slate-700 font-bold block">Upload Files (PDF, PPT, Images, etc.)</label>
+              
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.doc,.docx,.zip"
+                onChange={handleFileInputChange}
+                className="hidden"
+                id="progress-file-input"
+              />
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all space-y-2 select-none outline-none ${
+                  isDragging
+                    ? 'border-blue-500 bg-blue-50/70 ring-4 ring-blue-500/10 scale-[1.01]'
+                    : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 focus:border-blue-500 focus:bg-blue-50/20'
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-2xl mx-auto flex items-center justify-center transition-all ${
+                  isDragging ? 'bg-blue-600 text-white scale-110 shadow-lg shadow-blue-500/30' : 'bg-blue-50 text-blue-600'
+                }`}>
+                  <UploadCloud className="w-6 h-6" />
+                </div>
                 <div className="text-xs text-slate-700 font-bold">
-                  Click to upload or drag and drop
+                  {isDragging ? 'Drop your files here to upload' : 'Click to upload or drag and drop'}
                 </div>
                 <p className="text-[11px] text-slate-400 font-normal">
-                  Supports: PDF, PPT, JPG, PNG (Max 10MB)
+                  Supports: PDF, PPT, JPG, PNG, DOC, ZIP (Max 10MB per file)
                 </p>
               </div>
+
+              {/* Upload Error Banner */}
+              {uploadError && (
+                <div className="flex items-center justify-between bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2.5 rounded-xl text-xs animate-fadeIn">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>{uploadError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUploadError(null)}
+                    className="text-rose-400 hover:text-rose-700 p-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Uploaded Files List */}
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">
+                      Uploaded Files ({uploadedFiles.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearAllFiles}
+                      className="text-[11px] font-semibold text-slate-400 hover:text-rose-600 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {uploadedFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200/90 rounded-xl hover:border-slate-300 transition-colors group"
+                      >
+                        <div className="flex items-center space-x-3 overflow-hidden pr-2">
+                          <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-xs">
+                            {file.type === 'image' ? (
+                              <ImageIcon className="w-4 h-4 text-blue-500" />
+                            ) : file.type === 'ppt' ? (
+                              <File className="w-4 h-4 text-amber-500" />
+                            ) : (
+                              <FileText className="w-4 h-4 text-rose-500" />
+                            )}
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-bold text-slate-800 truncate" title={file.name}>
+                              {file.name}
+                            </p>
+                            <span className="text-[10px] text-slate-400 font-semibold">{file.size}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeFile(file.id);
+                          }}
+                          title="Remove file"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* GitHub Repository Link */}

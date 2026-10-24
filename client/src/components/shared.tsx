@@ -157,13 +157,39 @@ export const Modal: React.FC<{
 }> = ({ open, title, onClose, maxWidth = 'max-w-lg', children }) => {
   const closeButton = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const prevOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      prevOpenRef.current = false;
+      return;
+    }
+
+    // Only set initial focus once when modal opens
+    if (!prevOpenRef.current) {
+      prevOpenRef.current = true;
+      const timer = setTimeout(() => {
+        if (!dialog.current?.contains(document.activeElement)) {
+          const firstInput = dialog.current?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+          if (firstInput) {
+            firstInput.focus();
+          } else {
+            closeButton.current?.focus();
+          }
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    closeButton.current?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
       if (event.key === 'Tab' && dialog.current) {
         const focusable = dialog.current.querySelectorAll<HTMLElement>(
           'button, input, select, textarea, a, [tabindex]:not([tabindex="-1"])'
@@ -182,7 +208,7 @@ export const Modal: React.FC<{
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Users,
   UserRoundPlus,
@@ -11,7 +11,9 @@ import {
   Filter,
   CheckCircle2,
   ArrowRight,
-  UserCheck
+  UserCheck,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useFetch } from '../hooks/useData';
@@ -32,7 +34,7 @@ import { pathToView } from '../components/navConfig';
 import { MentorTeamDetails } from './MentorTeamDetails';
 
 export const AdminDashboardView: React.FC = () => {
-  const { setActiveView, showToast } = useApp();
+  const { setActiveView, showToast, createMentor } = useApp();
 
   // Modals & Selection
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -45,8 +47,29 @@ export const AdminDashboardView: React.FC = () => {
   const [newMentorEmail, setNewMentorEmail] = useState('');
   const [newMentorDept, setNewMentorDept] = useState('Computer Science');
   const [addMentorError, setAddMentorError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; email?: string; department?: string }>({});
   const [mentorSubmitting, setMentorSubmitting] = useState(false);
   const [createdMentorData, setCreatedMentorData] = useState<any | null>(null);
+  const [copiedPassword, setCopiedPassword] = useState(false);
+
+  const openAddMentorModal = useCallback(() => {
+    setNewMentorName('');
+    setNewMentorEmail('');
+    setNewMentorDept('Computer Science');
+    setAddMentorError('');
+    setFieldErrors({});
+    setCreatedMentorData(null);
+    setCopiedPassword(false);
+    setIsAddMentorOpen(true);
+  }, []);
+
+  const closeAddMentorModal = useCallback(() => {
+    setIsAddMentorOpen(false);
+    setCreatedMentorData(null);
+    setAddMentorError('');
+    setFieldErrors({});
+    setCopiedPassword(false);
+  }, []);
 
   // Assign Mentor Form
   const [targetTeamId, setTargetTeamId] = useState('');
@@ -65,28 +88,60 @@ export const AdminDashboardView: React.FC = () => {
 
   const handleAddMentor = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMentorName || !newMentorEmail || !newMentorDept) {
-      setAddMentorError('All fields are required.');
+    const errors: { name?: string; email?: string; department?: string } = {};
+
+    const trimmedName = newMentorName.trim();
+    const trimmedEmail = newMentorEmail.trim();
+    const trimmedDept = newMentorDept.trim();
+
+    if (!trimmedName) {
+      errors.name = 'Full name is required.';
+    } else if (trimmedName.length < 2) {
+      errors.name = 'Full name must be at least 2 characters.';
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail) {
+      errors.email = 'Institutional email is required.';
+    } else if (!emailRegex.test(trimmedEmail)) {
+      errors.email = 'Please enter a valid email address (e.g. mentor@college.edu).';
+    }
+
+    if (!trimmedDept) {
+      errors.department = 'Department is required.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
+    setFieldErrors({});
     setAddMentorError('');
     setMentorSubmitting(true);
 
     try {
       const res = await api.admin.addMentor({
-        name: newMentorName.trim(),
-        email: newMentorEmail.trim(),
-        department: newMentorDept.trim()
+        name: trimmedName,
+        email: trimmedEmail,
+        department: trimmedDept
       });
       showToast('Mentor account created successfully.', 'success');
-      setCreatedMentorData(res.data);
+      const responseData = res?.data || res;
+      setCreatedMentorData(responseData);
+      if (createMentor) {
+        createMentor({
+          name: trimmedName,
+          email: trimmedEmail,
+          password: responseData.temporaryPassword || 'TempPass123!'
+        });
+      }
       setNewMentorName('');
       setNewMentorEmail('');
       refetch();
       refetchMentors();
     } catch (err: any) {
-      setAddMentorError(err?.response?.data?.message || 'Failed to add mentor.');
+      setAddMentorError(err?.response?.data?.message || err?.message || 'Failed to add mentor. Please verify fields and try again.');
     } finally {
       setMentorSubmitting(false);
     }
@@ -143,10 +198,7 @@ export const AdminDashboardView: React.FC = () => {
         action={
           <div className="flex flex-wrap items-center gap-2.5">
             <button
-              onClick={() => {
-                setCreatedMentorData(null);
-                setIsAddMentorOpen(true);
-              }}
+              onClick={openAddMentorModal}
               className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
             >
               <UserRoundPlus className="w-4 h-4 text-blue-600" />
@@ -419,42 +471,53 @@ export const AdminDashboardView: React.FC = () => {
       <Modal
         open={isAddMentorOpen}
         title="Add Faculty Mentor"
-        onClose={() => {
-          setCreatedMentorData(null);
-          setIsAddMentorOpen(false);
-        }}
+        onClose={closeAddMentorModal}
       >
         {createdMentorData ? (
           <div className="space-y-4">
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3">
               <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Mentor Account Created in MongoDB Atlas!</span>
+                <span>Mentor Account Created Successfully!</span>
               </div>
               <div className="text-xs text-slate-700 space-y-1">
                 <p><strong className="text-slate-900">Name:</strong> {createdMentorData.name}</p>
                 <p><strong className="text-slate-900">Email:</strong> {createdMentorData.email}</p>
                 <p><strong className="text-slate-900">Department:</strong> {createdMentorData.department}</p>
               </div>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs font-medium space-y-1.5">
-                <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span>One-Time Temporary Password</span>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs font-medium space-y-2">
+                <div className="font-bold flex items-center justify-between text-amber-900">
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span>One-Time Temporary Password</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (createdMentorData.temporaryPassword) {
+                        navigator.clipboard.writeText(createdMentorData.temporaryPassword);
+                        setCopiedPassword(true);
+                        setTimeout(() => setCopiedPassword(false), 2000);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
+                  >
+                    {copiedPassword ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5 text-amber-800" />}
+                    <span>{copiedPassword ? 'Copied!' : 'Copy'}</span>
+                  </button>
                 </div>
-                <div className="p-2.5 bg-white border border-amber-300 rounded font-mono text-sm font-black text-slate-900 select-all tracking-wider text-center">
+                <div className="p-2.5 bg-white border border-amber-300 rounded-lg font-mono text-sm font-black text-slate-900 select-all tracking-wider text-center">
                   {createdMentorData.temporaryPassword}
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  ⚠️ No invitation email was sent. Please share this temporary password securely with the faculty mentor. The mentor will be prompted to set a new personal password on their first login.
+                  ⚠️ No invitation email was sent. Please copy and share this temporary password securely with the faculty mentor. The mentor will be prompted to set a personal password upon first sign-in.
                 </p>
               </div>
             </div>
             <div className="flex justify-end">
               <button
-                onClick={() => {
-                  setCreatedMentorData(null);
-                  setIsAddMentorOpen(false);
-                }}
+                type="button"
+                onClick={closeAddMentorModal}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
               >
                 Done & Close
@@ -462,58 +525,80 @@ export const AdminDashboardView: React.FC = () => {
             </div>
           </div>
         ) : (
-          <form onSubmit={handleAddMentor} className="space-y-4 text-xs font-semibold">
-            <FormField label="Full Name" required={true}>
+          <form onSubmit={handleAddMentor} noValidate className="space-y-4 text-xs font-semibold">
+            <FormField label="Full Name" required={true} error={fieldErrors.name}>
               <input
                 type="text"
-                required
                 value={newMentorName}
-                onChange={(e) => setNewMentorName(e.target.value)}
+                onChange={(e) => {
+                  setNewMentorName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+                }}
                 placeholder="e.g. Dr. K. Ramesh"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className={`w-full bg-slate-50 border rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 ${
+                  fieldErrors.name ? 'border-rose-400 focus:ring-rose-500/20' : 'border-slate-200 focus:ring-blue-500/20'
+                }`}
               />
             </FormField>
 
-            <FormField label="Institutional Email" required={true}>
+            <FormField label="Institutional Email" required={true} error={fieldErrors.email}>
               <input
                 type="email"
-                required
                 value={newMentorEmail}
-                onChange={(e) => setNewMentorEmail(e.target.value)}
-                placeholder="e.g. ramesh@college.edu"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                onChange={(e) => {
+                  setNewMentorEmail(e.target.value);
+                  if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                }}
+                placeholder="e.g. mentor.faculty@college.edu"
+                className={`w-full bg-slate-50 border rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 ${
+                  fieldErrors.email ? 'border-rose-400 focus:ring-rose-500/20' : 'border-slate-200 focus:ring-blue-500/20'
+                }`}
               />
             </FormField>
 
-            <FormField label="Department" required={true}>
-              <input
-                type="text"
-                required
+            <FormField label="Department" required={true} error={fieldErrors.department}>
+              <select
                 value={newMentorDept}
-                onChange={(e) => setNewMentorDept(e.target.value)}
-                placeholder="e.g. Computer Science"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
+                onChange={(e) => {
+                  setNewMentorDept(e.target.value);
+                  if (fieldErrors.department) setFieldErrors((prev) => ({ ...prev, department: undefined }));
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+              >
+                <option value="Computer Science">Computer Science & Engineering</option>
+                <option value="Information Technology">Information Technology</option>
+                <option value="Electronics & Communication">Electronics & Communication</option>
+                <option value="Electrical & Electronics">Electrical & Electronics</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
+                <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
+              </select>
             </FormField>
 
             {addMentorError && (
-              <p className="text-rose-600 text-xs font-semibold">{addMentorError}</p>
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>{addMentorError}</span>
+              </div>
             )}
 
             <div className="flex justify-end gap-3 pt-3">
               <button
                 type="button"
-                onClick={() => setIsAddMentorOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 cursor-pointer"
+                onClick={closeAddMentorModal}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 cursor-pointer transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={mentorSubmitting}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-xs cursor-pointer transition-colors inline-flex items-center gap-2"
               >
-                {mentorSubmitting ? 'Creating...' : 'Create Account'}
+                {mentorSubmitting && (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                <span>{mentorSubmitting ? 'Creating...' : 'Create Account'}</span>
               </button>
             </div>
           </form>

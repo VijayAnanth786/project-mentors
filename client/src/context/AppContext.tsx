@@ -198,8 +198,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const submitWeeklyProgress = async (payload: any) => {
+    const finalFiles = payload.files || payload.attachments || [];
+    const finalRepoUrl = payload.githubUrl || payload.repoUrl || (currentProject?.githubUrl ?? '');
+
     try {
-      await api.student.submitProgress(payload);
+      await api.student.submitProgress({
+        ...payload,
+        repoUrl: finalRepoUrl,
+        githubUrl: finalRepoUrl,
+        attachments: finalFiles,
+        files: finalFiles
+      });
       showToast('Progress report submitted to mentor successfully!', 'success');
     } catch (e) {
       // Fallback local update
@@ -213,14 +222,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentWork: typeof payload.currentWork === 'string' ? payload.currentWork.split('\n').filter(Boolean) : payload.currentWork || [],
       blockers: typeof payload.blockers === 'string' ? payload.blockers.split('\n').filter(Boolean) : payload.blockers || [],
       nextWeekGoals: typeof payload.nextWeekGoals === 'string' ? payload.nextWeekGoals.split('\n').filter(Boolean) : payload.nextWeekGoals || [],
-      files: payload.files || [
-        { name: 'Weekly_Progress_Report.pdf', size: '1.8 MB', type: 'pdf', url: '#' }
-      ],
-      githubUrl: payload.githubUrl || (currentProject?.githubUrl ?? ''),
+      files: finalFiles,
+      githubUrl: finalRepoUrl,
       status: 'Waiting for review'
     };
 
-    setSubmissions([newSub, ...submissions]);
+    setSubmissions((prev) => [newSub, ...prev]);
   };
 
   const createTeam = (teamData: Omit<TeamCardData, 'id'>) => {

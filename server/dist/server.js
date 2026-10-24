@@ -26,7 +26,8 @@ app.use((0, cors_1.default)({
     origin: true,
     credentials: true
 }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '50mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
 // 4. API Routes
 app.use('/api/auth', authRoutes_1.default);
 app.use('/api/mentor', mentorRoutes_1.default);

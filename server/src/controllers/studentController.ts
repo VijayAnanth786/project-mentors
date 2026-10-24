@@ -128,7 +128,17 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
 export const submitStudentWeeklyProgress = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const studentId = req.user?.id || '';
-    const { weekNumber, completedTasks, currentWork, blockers, nextWeekGoals, repoUrl, attachments } = req.body;
+    const {
+      weekNumber,
+      completedTasks,
+      currentWork,
+      blockers,
+      nextWeekGoals,
+      repoUrl,
+      githubUrl,
+      attachments,
+      files
+    } = req.body;
 
     // Find student's team
     const membership = db.prepare(`
@@ -151,6 +161,8 @@ export const submitStudentWeeklyProgress = async (req: AuthenticatedRequest, res
     const currentText = Array.isArray(currentWork) ? currentWork.join('\n') : currentWork || '';
     const blockerText = Array.isArray(blockers) ? blockers.join('\n') : blockers || '';
     const nextText = Array.isArray(nextWeekGoals) ? nextWeekGoals.join('\n') : nextWeekGoals || '';
+    const finalRepoUrl = repoUrl || githubUrl || '';
+    const finalAttachments = attachments || files || [];
 
     db.prepare(`
       INSERT INTO weekly_submissions (
@@ -167,8 +179,8 @@ export const submitStudentWeeklyProgress = async (req: AuthenticatedRequest, res
       currentText,
       blockerText,
       nextText,
-      repoUrl || '',
-      JSON.stringify(attachments || []),
+      finalRepoUrl,
+      JSON.stringify(finalAttachments),
       studentId,
       now
     );

@@ -309,50 +309,68 @@ export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): 
     const normalizedEmail = email.trim().toLowerCase();
     const isMongoReady = mongoose.connection.readyState === 1;
 
+    // Check existing in SQLite first
+    const existingSQLite = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail) as any;
+    if (existingSQLite) {
+      res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
+      return;
+    }
+
+    if (isMongoReady) {
+      const existingMongo = await User.findOne({ email: normalizedEmail });
+      if (existingMongo) {
+        res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
+        return;
+      }
+    }
+
     // Generate strong random temporary password
     const tempPassword = 'Temp_' + crypto.randomBytes(4).toString('hex') + '!' + Math.floor(100 + Math.random() * 900);
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
-    let mentorId = '';
+    const mentorId = `usr_mentor_${Date.now()}`;
+    const avatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80';
 
-    if (isMongoReady) {
-      const existing = await User.findOne({ email: normalizedEmail });
-      if (existing) {
-        res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
-        return;
-      }
+    // Always persist to SQLite
+    db.prepare(`
+      INSERT INTO users (id, name, email, password_hash, role, status, avatar)
+      VALUES (?, ?, ?, ?, 'mentor', 'active', ?)
+    `).run(mentorId, name.trim(), normalizedEmail, passwordHash, avatar);
 
-      const newMentor = await User.create({
-        name: name.trim(),
-        email: normalizedEmail,
-        passwordHash,
-        role: 'MENTOR',
-        status: 'ACTIVE',
-        department: department.trim(),
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-        mustChangePassword: true
-      });
-      mentorId = newMentor._id.toString();
-    } else {
-      const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail) as any;
-      if (existing) {
-        res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
-        return;
-      }
-      mentorId = `usr_mentor_${Date.now()}`;
+    try {
       db.prepare(`
-        INSERT INTO users (id, name, email, password_hash, role, status, avatar)
-        VALUES (?, ?, ?, ?, 'mentor', 'active', ?)
-      `).run(mentorId, name.trim(), normalizedEmail, passwordHash, 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80');
+        INSERT INTO mentor_profiles (id, user_id, department, title)
+        VALUES (?, ?, ?, 'Faculty Mentor')
+      `).run(`mp_${Date.now()}`, mentorId, department.trim());
+    } catch {}
 
+    // If Mongo Atlas is ready, also sync user document
+    if (isMongoReady) {
       try {
-        db.prepare(`
-          INSERT INTO mentor_profiles (id, user_id, department, title)
-          VALUES (?, ?, ?, 'Faculty Mentor')
-        `).run(`mp_${Date.now()}`, mentorId, department.trim());
-      } catch {}
+        await User.create({
+          _id: new mongoose.Types.ObjectId(),
+          name: name.trim(),
+          email: normalizedEmail,
+          passwordHash,
+          role: 'MENTOR',
+          status: 'ACTIVE',
+          department: department.trim(),
+          avatar,
+          mustChangePassword: true
+        });
+      } catch (mErr) {
+        console.warn('[Mongo Sync Notice] Could not replicate mentor to Atlas:', mErr);
+      }
     }
+
+    // Log activity event
+    try {
+      db.prepare(`
+        INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id)
+        VALUES (?, ?, 'MENTOR_ADDED', ?, 'user', ?)
+      `).run(`act_${Date.now()}`, req.user?.id || 'usr_admin_1', `Admin added faculty mentor ${name.trim()} (${department.trim()})`, mentorId);
+    } catch {}
 
     // Reveal the temporary password once in creation response (never logged or persisted in plain text)
     res.status(201).json({
