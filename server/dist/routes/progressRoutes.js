@@ -2,10 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const progressController_1 = require("../controllers/progressController");
-const reviewController_1 = require("../controllers/reviewController");
 const authMiddleware_1 = require("../middleware/authMiddleware");
 const router = (0, express_1.Router)();
 router.use(authMiddleware_1.authenticateJWT);
 router.post('/submit', (0, authMiddleware_1.requireRoles)('student'), progressController_1.submitWeeklyProgress);
-router.post('/review', (0, authMiddleware_1.requireRoles)('mentor', 'admin'), reviewController_1.submitMentorReview);
 exports.default = router;

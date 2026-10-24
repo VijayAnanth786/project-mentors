@@ -6,36 +6,67 @@ import { ProjectDetailsView } from './views/ProjectDetailsView';
 import { SubmitProgressView } from './views/SubmitProgressView';
 import { ProjectAnalyticsView } from './views/ProjectAnalyticsView';
 import { LoginView } from './views/LoginView';
-import { MentorCreationView } from './views/MentorCreationView';
 import { DashboardLayout } from './components/DashboardLayout';
-import { RoleDashboardView } from './views/RoleDashboardView';
 import { ComingNextView } from './views/ComingNextView';
 import { pathToView } from './components/navConfig';
-import { initialMockDashboardState } from './data/mockData';
 import { MentorDashboardView } from './views/MentorDashboardView';
-import { MentorMeetingsView, MentorNotificationsView, MentorProfileView, MentorProjectsView, MentorReviewsView, MentorTeamsView } from './views/MentorPages';
-import { AdminAnnouncementsView, AdminAssignMentorsView, AdminMentorsView, AdminProjectsView, AdminReportsView, AdminSettingsView, AdminStudentsView, AdminTeamsView } from './views/AdminPages';
+import {
+  MentorMeetingsView,
+  MentorNotificationsView,
+  MentorProfileView,
+  MentorProjectsView,
+  MentorReviewsView,
+  MentorTeamsView
+} from './views/MentorPages';
+import {
+  AdminAnnouncementsView,
+  AdminAssignMentorsView,
+  AdminMentorsView,
+  AdminProjectsView,
+  AdminReportsView,
+  AdminSettingsView,
+  AdminStudentsView,
+  AdminTeamsView
+} from './views/AdminPages';
 import { AdminDashboardView } from './views/AdminDashboardView';
 
 export const App: React.FC = () => {
-  const { activeView, setActiveView, currentUser, setCurrentUser } = useApp();
+  const { activeView, setActiveView } = useApp();
 
   React.useEffect(() => {
     const syncPath = () => {
-      const view = pathToView[window.location.pathname];
+      const pathname = window.location.pathname;
+      const view = pathToView[pathname];
       if (view) {
         setActiveView(view);
-        const role = window.location.pathname.startsWith('/admin/') ? 'admin' : window.location.pathname.startsWith('/mentor/') ? 'mentor' : 'student';
-        if (currentUser.role !== role) {
-          const previewUser = initialMockDashboardState.users.find((user) => user.role === role && user.status === 'active');
-          if (previewUser) setCurrentUser({ id: previewUser.id, name: previewUser.name, email: previewUser.email, role, avatar: currentUser.avatar });
+      } else if (pathname === '/' || pathname === '') {
+        const token = localStorage.getItem('pm_auth_token');
+        const userStr = localStorage.getItem('pm_user');
+        if (!token || !userStr) {
+          window.history.replaceState({}, '', '/login');
+          setActiveView('login');
+        } else {
+          try {
+            const user = JSON.parse(userStr);
+            const redirect =
+              user.role === 'admin'
+                ? '/admin/dashboard'
+                : user.role === 'mentor'
+                ? '/mentor/dashboard'
+                : '/student/dashboard';
+            window.history.replaceState({}, '', redirect);
+            setActiveView(pathToView[redirect] || 'home');
+          } catch {
+            setActiveView('login');
+          }
         }
       }
     };
+
     syncPath();
     window.addEventListener('popstate', syncPath);
     return () => window.removeEventListener('popstate', syncPath);
-  }, [currentUser.avatar, currentUser.role, setActiveView, setCurrentUser]);
+  }, [setActiveView]);
 
   if (activeView === 'login') {
     return <LoginView />;
@@ -43,6 +74,7 @@ export const App: React.FC = () => {
 
   const renderActiveView = () => {
     switch (activeView) {
+      // Admin Views
       case 'admin_dashboard':
         return <AdminDashboardView />;
       case 'admin_students':
@@ -61,6 +93,8 @@ export const App: React.FC = () => {
         return <AdminReportsView />;
       case 'admin_settings':
         return <AdminSettingsView />;
+
+      // Mentor Views
       case 'mentor_dashboard':
         return <MentorDashboardView />;
       case 'mentor_teams':
@@ -75,6 +109,8 @@ export const App: React.FC = () => {
         return <MentorNotificationsView />;
       case 'mentor_profile':
         return <MentorProfileView />;
+
+      // Student Views (Unchanged & fully preserved)
       case 'home':
         return <StudentDashboardView />;
       case 'my_team':
@@ -85,14 +121,11 @@ export const App: React.FC = () => {
         return <SubmitProgressView />;
       case 'analytics':
         return <ProjectAnalyticsView />;
-      case 'mentor_management':
-        return <MentorCreationView />;
+
       default:
         return <ComingNextView title={activeView.replace(/[\/_]/g, ' ').trim() || 'Dashboard'} />;
     }
   };
 
-  return (
-    <DashboardLayout>{renderActiveView()}</DashboardLayout>
-  );
+  return <DashboardLayout>{renderActiveView()}</DashboardLayout>;
 };

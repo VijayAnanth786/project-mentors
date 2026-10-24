@@ -1,31 +1,286 @@
 import React, { useState } from 'react';
-import { CalendarDays, CheckCircle2, ClipboardCheck, FolderKanban, Users } from 'lucide-react';
+import { CalendarDays, ClipboardCheck, FolderKanban, Users, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { overdueSubmissionCountForTeams, pendingReviewCountForTeams, upcomingMeetingCountForTeams } from '../data/selectors';
-import { DataTable, EmptyState, Modal, ProgressBar, StatusBadge, SummaryCard } from '../components/shared';
+import { useFetch } from '../hooks/useData';
+import { api } from '../api/client';
+import { DataTable, EmptyState, LoadingState, ErrorState, Modal, ProgressBar, StatusBadge, SummaryCard, WelcomeBanner } from '../components/shared';
 import { MentorTeamDetails } from './MentorTeamDetails';
 import { pathToView } from '../components/navConfig';
 
-const go = (path: string, setActiveView: (view: string) => void) => { window.history.pushState({}, '', path); setActiveView(pathToView[path] || path); };
-
 export const MentorDashboardView: React.FC = () => {
-  const { currentUser, dashboardState, setActiveView } = useApp();
+  const { currentUser, setActiveView } = useApp();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [previewEmpty, setPreviewEmpty] = useState(false);
-  const mentorId = dashboardState.mentors.find((mentor) => mentor.userId === currentUser.id)?.id || 'mentor-vetri';
-  const assignedTeams = dashboardState.teams.filter((team) => team.mentorId === mentorId);
-  const visibleTeams = previewEmpty ? [] : assignedTeams;
-  const assignedTeamIds = assignedTeams.map((team) => team.id);
-  const selectedTeam = dashboardState.teams.find((team) => team.id === selectedTeamId);
 
-  return <div className="mx-auto max-w-7xl space-y-7 p-5 sm:p-8">
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-blue-100 bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-white p-6 shadow-sm"><div><h1 className="text-2xl font-black tracking-tight text-slate-900">Hello, {currentUser.name}! <span aria-hidden="true">👋</span></h1><p className="mt-2 text-sm font-medium text-slate-500">You have {pendingReviewCountForTeams(dashboardState, assignedTeamIds)} progress submissions waiting for review.</p></div><button onClick={() => go('/mentor/reviews', setActiveView)} className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700">Review submissions</button></div>
-    <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"><input type="checkbox" checked={previewEmpty} onChange={(event) => setPreviewEmpty(event.target.checked)} className="rounded border-slate-300 text-blue-600" />Preview no assigned teams</label>
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"><SummaryCard label="Assigned teams" value={visibleTeams.length} detail="Teams currently allocated" icon={Users} /><SummaryCard label="Students guided" value={visibleTeams.reduce((count, team) => count + team.memberIds.length, 0)} detail="Across assigned teams" icon={Users} /><SummaryCard label="Pending reviews" value={pendingReviewCountForTeams(dashboardState, assignedTeamIds)} detail="Need your attention" icon={ClipboardCheck} /><SummaryCard label="Upcoming meetings" value={upcomingMeetingCountForTeams(dashboardState, assignedTeamIds)} detail="Scheduled sessions" icon={CalendarDays} /></div>
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.8fr)]">
-      <section><div className="mb-4 flex items-end justify-between"><div><h2 className="text-lg font-black text-slate-900">Assigned teams</h2><p className="mt-1 text-sm text-slate-500">Your teams and their latest progress.</p></div><button onClick={() => go('/mentor/teams', setActiveView)} className="text-xs font-bold text-blue-600 hover:underline">View all teams</button></div>{visibleTeams.length ? <DataTable><thead><tr className="text-xs font-bold text-slate-500"><th className="px-5 py-4">Team</th><th className="px-5 py-4">Project</th><th className="min-w-44 px-5 py-4">Progress</th><th className="px-5 py-4">Latest submission</th><th className="px-5 py-4">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleTeams.map((team) => { const project = dashboardState.projects.find((item) => item.id === team.projectId); const latest = dashboardState.weeklySubmissions.filter((submission) => submission.teamId === team.id).sort((a, b) => b.week - a.week)[0]; return <tr key={team.id} className="text-sm"><td className="whitespace-nowrap px-5 py-4 font-bold text-slate-800">{team.name}</td><td className="whitespace-nowrap px-5 py-4 text-slate-600">{project?.title}</td><td className="min-w-44 px-5 py-4"><div className="flex items-center gap-2"><ProgressBar value={project?.progress || 0} /><span className="text-xs font-bold text-slate-500">{project?.progress}%</span></div></td><td className="whitespace-nowrap px-5 py-4"><StatusBadge status={latest?.status || 'NO SUBMISSION'} /></td><td className="whitespace-nowrap px-5 py-4"><button onClick={() => setSelectedTeamId(team.id)} className="text-xs font-bold text-blue-600 hover:underline">View team</button></td></tr>; })}</tbody></DataTable> : <EmptyState title="No teams assigned yet" description="Your assigned teams will appear here once the admin allocates them." />}</section>
-      <div className="space-y-6"><section><h2 className="mb-4 text-lg font-black text-slate-900">Upcoming meetings</h2><div className="space-y-3">{dashboardState.meetings.filter((meeting) => visibleTeams.some((team) => team.id === meeting.teamId) && meeting.status === 'upcoming').map((meeting) => <div key={meeting.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm font-bold text-slate-800">{meeting.title}</p><p className="mt-2 text-xs text-slate-500">{meeting.date} · {meeting.time}</p><p className="mt-1 text-xs font-semibold text-blue-600">{meeting.linkOrLocation}</p></div>)}</div></section><section><h2 className="mb-4 text-lg font-black text-slate-900">Overdue submissions</h2><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{dashboardState.weeklySubmissions.filter((submission) => visibleTeams.some((team) => team.id === submission.teamId) && submission.status === 'PENDING' && new Date(submission.date) < new Date('2026-10-23')).map((submission) => { const team = dashboardState.teams.find((item) => item.id === submission.teamId); return <div key={submission.id} className="flex items-center justify-between border-b border-slate-100 py-3 last:border-0"><div><p className="text-sm font-bold text-slate-800">{team?.name}</p><p className="text-xs text-rose-600">Missed {submission.date}</p></div><button onClick={() => setSelectedTeamId(team?.id || null)} className="text-xs font-bold text-blue-600 hover:underline">View team</button></div>; })}{overdueSubmissionCountForTeams(dashboardState, assignedTeamIds) === 0 && <p className="text-sm text-slate-500">No overdue submissions.</p>}</div></section><section><h2 className="mb-4 text-lg font-black text-slate-900">Recent student activity</h2><div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{dashboardState.activityEvents.slice(0, 5).map((event) => <div key={event.id} className="border-b border-slate-100 py-3 last:border-0"><p className="text-xs font-semibold text-slate-700">{event.text}</p><p className="mt-1 text-[11px] text-slate-400">{new Date(event.timestamp).toLocaleDateString()}</p></div>)}</div></section></div>
+  const { data, loading, error, refetch } = useFetch(() => api.mentor.getDashboard(), []);
+
+  const navigate = (path: string) => {
+    window.history.pushState({}, '', path);
+    setActiveView(pathToView[path] || path);
+  };
+
+  if (loading) {
+    return <LoadingState message="Loading your assigned teams and progress reviews..." />;
+  }
+
+  if (error || !data) {
+    return (
+      <div className="mx-auto max-w-7xl p-6 sm:p-8">
+        <ErrorState message={error || 'Unable to load dashboard data.'} onRetry={refetch} />
+      </div>
+    );
+  }
+
+  const { summary, assignedTeams, upcomingMeetings, overdueSubmissions, recentActivity } = data;
+  const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Mentor';
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-7 p-5 sm:p-8">
+      {/* Welcome Banner */}
+      <WelcomeBanner
+        title={`Hello, ${firstName}! 👋`}
+        description={
+          summary.pendingReviewsCount > 0
+            ? `You have ${summary.pendingReviewsCount} progress submission${summary.pendingReviewsCount === 1 ? '' : 's'} waiting for review.`
+            : 'All student submissions are up to date. Keep up the great mentorship!'
+        }
+        action={
+          <button
+            onClick={() => navigate('/mentor/reviews')}
+            className="rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Review Submissions</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        }
+      />
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          label="Assigned Teams"
+          value={summary.assignedTeamsCount}
+          detail="Teams allocated by administrator"
+          icon={Users}
+        />
+        <SummaryCard
+          label="Students Guided"
+          value={summary.studentsGuidedCount}
+          detail="Active students across teams"
+          icon={FolderKanban}
+        />
+        <SummaryCard
+          label="Pending Reviews"
+          value={summary.pendingReviewsCount}
+          detail="Weekly reports awaiting feedback"
+          icon={ClipboardCheck}
+        />
+        <SummaryCard
+          label="Upcoming Meetings"
+          value={summary.upcomingMeetingsCount}
+          detail="Scheduled review sessions"
+          icon={CalendarDays}
+        />
+      </div>
+
+      {/* Two-Column Responsive Layout */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.85fr)]">
+        {/* Left Column: Assigned Teams & Pending */}
+        <div className="space-y-6">
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-black text-slate-900 tracking-tight">Assigned Teams</h2>
+                <p className="text-xs text-slate-500">Your teams and their latest sprint progress.</p>
+              </div>
+              <button
+                onClick={() => navigate('/mentor/teams')}
+                className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+              >
+                View all teams
+              </button>
+            </div>
+
+            {assignedTeams && assignedTeams.length > 0 ? (
+              <DataTable>
+                <thead>
+                  <tr className="text-xs font-bold text-slate-500 bg-slate-50/50">
+                    <th className="px-5 py-3.5">Team</th>
+                    <th className="px-5 py-3.5">Project</th>
+                    <th className="min-w-44 px-5 py-3.5">Progress</th>
+                    <th className="px-5 py-3.5">Latest Submission</th>
+                    <th className="px-5 py-3.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {assignedTeams.map((team: any) => (
+                    <tr key={team.id} className="text-sm hover:bg-slate-50/40 transition-colors">
+                      <td className="whitespace-nowrap px-5 py-4">
+                        <div className="font-bold text-slate-900">{team.name}</div>
+                        <div className="text-xs text-slate-400">Leader: {team.leaderName}</div>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-4 text-slate-700 font-medium">
+                        {team.project?.title || 'No project'}
+                      </td>
+                      <td className="min-w-44 px-5 py-4">
+                        <div className="flex items-center gap-2.5">
+                          <ProgressBar value={team.project?.progress || 0} />
+                          <span className="text-xs font-bold text-slate-600">
+                            {team.project?.progress || 0}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-4">
+                        {team.latestSubmission ? (
+                          <StatusBadge status={team.latestSubmission.status} />
+                        ) : (
+                          <span className="text-xs text-slate-400 font-medium">No submissions</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-4 text-right">
+                        <button
+                          onClick={() => setSelectedTeamId(team.id)}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                          View Team
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            ) : (
+              <EmptyState
+                title="No teams assigned yet"
+                description="Your assigned teams will appear here once the admin allocates them."
+                icon={Users}
+              />
+            )}
+          </section>
+        </div>
+
+        {/* Right Column: Upcoming Meetings, Overdue Submissions, Recent Activity */}
+        <div className="space-y-6">
+          {/* Upcoming Meetings */}
+          <section className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-blue-600" />
+                <span>Upcoming Meetings</span>
+              </h3>
+              <button
+                onClick={() => navigate('/mentor/meetings')}
+                className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+              >
+                Schedule
+              </button>
+            </div>
+
+            {upcomingMeetings && upcomingMeetings.length > 0 ? (
+              <div className="space-y-3">
+                {upcomingMeetings.map((meeting: any) => (
+                  <div
+                    key={meeting.id}
+                    className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900">{meeting.title}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                        {meeting.team_name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{meeting.date} • {meeting.time}</span>
+                    </div>
+                    <div className="text-[11px] font-medium text-slate-600 truncate">
+                      {meeting.link_or_location.startsWith('http') ? (
+                        <a
+                          href={meeting.link_or_location}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline font-semibold"
+                        >
+                          Join Meeting Link
+                        </a>
+                      ) : (
+                        <span>📍 {meeting.link_or_location}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 py-3 text-center">No upcoming meetings scheduled.</p>
+            )}
+          </section>
+
+          {/* Overdue Submissions */}
+          <section className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+            <h3 className="text-sm font-extrabold text-slate-900 mb-3 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              <span>Overdue Submissions</span>
+            </h3>
+
+            {overdueSubmissions && overdueSubmissions.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {overdueSubmissions.map((sub: any) => (
+                  <div key={sub.id} className="py-2.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{sub.team_name}</p>
+                      <p className="text-[11px] text-rose-600 font-medium">
+                        Week {sub.week} • Missed {sub.date}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedTeamId(sub.team_id)}
+                      className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      View Team
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 py-3 text-center">No overdue submissions.</p>
+            )}
+          </section>
+
+          {/* Recent Student Activity */}
+          <section className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+            <h3 className="text-sm font-extrabold text-slate-900 mb-3">Recent Student Activity</h3>
+            {recentActivity && recentActivity.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {recentActivity.map((event: any) => (
+                  <div key={event.id} className="py-2.5">
+                    <p className="text-xs font-semibold text-slate-700 leading-snug">
+                      {event.description}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                      {new Date(event.created_at).toLocaleString([], {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 py-3 text-center">No recent activity recorded.</p>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Team Details Modal */}
+      {selectedTeamId && (
+        <MentorTeamDetails
+          teamId={selectedTeamId}
+          open={Boolean(selectedTeamId)}
+          onClose={() => setSelectedTeamId(null)}
+        />
+      )}
     </div>
-    <Modal open={Boolean(selectedTeam)} title={selectedTeam?.name || 'Team details'} onClose={() => setSelectedTeamId(null)}>{selectedTeam && <MentorTeamDetails team={selectedTeam} />}</Modal>
-  </div>;
+  );
 };

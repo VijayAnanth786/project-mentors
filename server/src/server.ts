@@ -1,21 +1,37 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
+import { connectDB } from './config/db';
 import authRoutes from './routes/authRoutes';
+import mentorRoutes from './routes/mentorRoutes';
+import adminRoutes from './routes/adminRoutes';
+import studentRoutes from './routes/studentRoutes';
+import fileRoutes from './routes/fileRoutes';
 import teamRoutes from './routes/teamRoutes';
 import progressRoutes from './routes/progressRoutes';
+import { initSchema } from './db/database';
+import { runSeed } from './db/seed';
 
+// 1. Load environment configuration
 dotenv.config();
 
+// 2. Initialize Express
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+// 3. Configure middleware
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
 
-// Routes
+// 4. API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/mentor', mentorRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/student', studentRoutes);
+app.use('/api/files', fileRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/progress', progressRoutes);
 
@@ -23,23 +39,33 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'ProjectMentor Backend API'
+    service: 'ProjectMentor Production API',
+    database: 'MongoDB Atlas + Mongoose'
   });
 });
 
-// Resilient MongoDB Initialization
-const connectDatabase = async () => {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/project_mentor';
+// 5. Start database initialization and launch server
+const startServer = async () => {
   try {
-    await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 3000 });
-    console.log(`[Database] MongoDB successfully connected at ${mongoUri}`);
-  } catch (err: any) {
-    console.warn(`[Database Warning] Could not connect to local MongoDB (${err.message}). Running with in-memory controllers.`);
+    // Await database connection before listening
+    await connectDB();
+
+    // Preserve existing SQLite schema and seed for teams/progress if available
+    try {
+      initSchema();
+      await runSeed();
+    } catch (dbErr) {
+      console.warn('[Local Schema Notice]', dbErr);
+    }
+
+    app.listen(PORT, () => {
+      console.log(`🚀 [ProjectMentor Server] Running on http://localhost:${PORT}`);
+    });
+  } catch (error: any) {
+    console.error(`[Server Startup Failure] ${error?.message || error}`);
+    process.exit(1);
   }
 };
 
-connectDatabase().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 [ProjectMentor Server] Running on http://localhost:${PORT}`);
-  });
-});
+startServer();
+
