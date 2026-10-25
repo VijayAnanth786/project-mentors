@@ -62,9 +62,11 @@ export interface ProgressSubmission {
     url: string;
   }>;
   githubUrl?: string;
-  status: 'Waiting for review' | 'Approved' | 'Needs Improvement' | 'Major Issue';
+  status: 'Waiting for review' | 'Approved' | 'Changes requested' | 'Needs Improvement' | 'Major Issue';
+  feedback?: string;
+  reviewerName?: string;
   review?: {
-    status: 'Approved' | 'Needs Improvement' | 'Major Issue';
+    status: 'Approved' | 'Changes requested' | 'Needs Improvement' | 'Major Issue';
     feedback: string;
     reviewedAt: string;
   };
@@ -78,7 +80,11 @@ export interface TeamCardData {
   yearCohort: '1st Year' | '2nd Year' | '3rd Year';
   status: ProjectStatus;
   progressPercentage: number;
+  leaderName?: string;
+  mentorName?: string;
+  isMyTeam?: number;
 }
+
 
 export interface Mentor {
   id: string;

@@ -193,6 +193,27 @@ export const api = {
     submitProgress: async (payload: any) => {
       const res = await apiClient.post('/student/submissions', payload);
       return res.data;
+    },
+    getTeams: async () => {
+      const res = await apiClient.get('/student/teams');
+      return res.data.data;
+    },
+    createTeam: async (payload: {
+      name: string;
+      projectTitle: string;
+      description?: string;
+      techStack?: string[];
+      yearCohort?: string;
+      department?: string;
+      githubUrl?: string;
+    }) => {
+      const res = await apiClient.post('/student/teams', payload);
+      return res.data;
+    },
+    joinTeam: async (teamId: string) => {
+      const res = await apiClient.post(`/student/teams/${teamId}/join`);
+      return res.data;
     }
   }
 };
+

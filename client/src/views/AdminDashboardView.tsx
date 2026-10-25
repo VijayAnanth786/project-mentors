@@ -206,10 +206,12 @@ export const AdminDashboardView: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                if (teams && teams.length > 0) {
-                  const unassigned = teams.find((t: any) => !t.mentor_id) || teams[0];
-                  setTargetTeamId(unassigned.id);
+                if (!teams || teams.length === 0) {
+                  showToast('No student teams created yet. Teams will appear here once registered.', 'error');
+                  return;
                 }
+                const unassigned = teams.find((t: any) => !t.mentor_id) || teams[0];
+                setTargetTeamId(unassigned.id);
                 if (mentorsList && mentorsList.length > 0) {
                   const activeM = mentorsList.find((m: any) => m.status === 'active') || mentorsList[0];
                   setTargetMentorId(activeM.id);
@@ -221,6 +223,7 @@ export const AdminDashboardView: React.FC = () => {
               <ShieldCheck className="w-4 h-4" />
               <span>Assign Mentor</span>
             </button>
+
           </div>
         }
       />
@@ -658,11 +661,12 @@ export const AdminDashboardView: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={assignSubmitting}
+              disabled={assignSubmitting || !targetTeamId || !targetMentorId}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-xs cursor-pointer"
             >
               {assignSubmitting ? 'Saving...' : 'Assign Mentor'}
             </button>
+
           </div>
         </form>
       </Modal>

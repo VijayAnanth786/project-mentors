@@ -23,27 +23,24 @@ interface UploadedFileItem {
 }
 
 export const SubmitProgressView: React.FC = () => {
-  const { submitWeeklyProgress, setActiveView } = useApp();
+  const { submitWeeklyProgress, setActiveView, currentProject, submissions } = useApp();
 
-  const [weekNumber, setWeekNumber] = useState('7');
-  const [completed, setCompleted] = useState(
-    'Completed authentication module and database schemas.\nIntegrated resume upload endpoint.'
-  );
-  const [currentWork, setCurrentWork] = useState(
-    'Working on AI parsing and model fine-tuning.'
-  );
-  const [blockers, setBlockers] = useState(
-    'PDF text stream parsing issue (getting empty string on certain formats).'
-  );
-  const [nextGoals, setNextGoals] = useState(
-    'Complete full integration test and connect frontend form.'
-  );
-  const [githubUrl, setGithubUrl] = useState('https://github.com/team5/resume-analyzer');
+  const nextWeek = submissions && submissions.length > 0
+    ? String(Math.max(...submissions.map((s) => s.weekNumber)) + 1)
+    : '1';
+
+  const [weekNumber, setWeekNumber] = useState(nextWeek);
+  const [completed, setCompleted] = useState('');
+  const [currentWork, setCurrentWork] = useState('');
+  const [blockers, setBlockers] = useState('');
+  const [nextGoals, setNextGoals] = useState('');
+  const [githubUrl, setGithubUrl] = useState(currentProject?.githubUrl || '');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -195,9 +192,11 @@ export const SubmitProgressView: React.FC = () => {
                   onChange={(e) => setWeekNumber(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 >
-                  <option value="6">Week 6</option>
-                  <option value="7">Week 7</option>
-                  <option value="8">Week 8</option>
+                  {Array.from({ length: 16 }, (_, i) => i + 1).map((w) => (
+                    <option key={w} value={String(w)}>
+                      Week {w}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -205,7 +204,7 @@ export const SubmitProgressView: React.FC = () => {
                 <label className="text-slate-700 block mb-1.5 font-bold">Submission Date</label>
                 <div className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-500 flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-slate-400" />
-                  <span>Today (Relative)</span>
+                  <span>Today ({new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})</span>
                 </div>
               </div>
             </div>
@@ -222,6 +221,7 @@ export const SubmitProgressView: React.FC = () => {
                   required
                   value={completed}
                   onChange={(e) => setCompleted(e.target.value)}
+                  placeholder="e.g. Built API endpoints, implemented database schemas, designed UI components..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 ></textarea>
               </div>
@@ -236,6 +236,7 @@ export const SubmitProgressView: React.FC = () => {
                   required
                   value={currentWork}
                   onChange={(e) => setCurrentWork(e.target.value)}
+                  placeholder="e.g. Integrating client-side state with backend services, writing unit tests..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 ></textarea>
               </div>
@@ -249,7 +250,7 @@ export const SubmitProgressView: React.FC = () => {
                   rows={2}
                   value={blockers}
                   onChange={(e) => setBlockers(e.target.value)}
-                  placeholder="Describe technical bottlenecks or API failures..."
+                  placeholder="e.g. None or describe any technical challenges, latency bottlenecks, or questions for your mentor..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 ></textarea>
               </div>
@@ -264,10 +265,12 @@ export const SubmitProgressView: React.FC = () => {
                   required
                   value={nextGoals}
                   onChange={(e) => setNextGoals(e.target.value)}
+                  placeholder="e.g. Complete frontend validation, deploy staging branch, prepare progress demo..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 ></textarea>
               </div>
             </div>
+
 
             {/* Drag & Drop Upload Files */}
             <div className="space-y-3">

@@ -6,8 +6,9 @@ const router = Router();
 
 router.use(authenticateJWT);
 
-router.get('/', requireRoles('student'), getTeams);
-router.post('/', requireRoles('student'), createTeam);
-router.get('/:teamId/risk', requireRoles('student'), getTeamRiskAndSummary);
+router.get('/', requireRoles('student', 'mentor', 'admin'), getTeams);
+router.post('/', requireRoles('student', 'mentor', 'admin'), createTeam);
+router.get('/:teamId/risk', requireRoles('student', 'mentor', 'admin'), getTeamRiskAndSummary);
+
 
 export default router;

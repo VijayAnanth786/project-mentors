@@ -23,114 +23,118 @@ interface AppContextType {
   logout: () => Promise<void>;
   showToast: (message: string, type?: 'success' | 'error') => void;
 
-  // Student features preservation
+  // Student features
   currentProject: Project | null;
   setCurrentProject: (project: Project | null) => void;
   teams: TeamCardData[];
   submissions: ProgressSubmission[];
-  submitWeeklyProgress: (payload: any) => Promise<void>;
-  createTeam: (team: Omit<TeamCardData, 'id'>) => void;
+  submitWeeklyProgress: (payload: any) => Promise<boolean>;
+  createTeam: (teamData: { name: string; projectTitle: string; description?: string; yearCohort?: string; techStack?: string[]; githubUrl?: string }) => Promise<any>;
+  joinTeam: (teamId: string) => Promise<any>;
+  refreshStudentData: () => Promise<void>;
+  refreshTeams: () => Promise<void>;
   users: User[];
   mentors: Mentor[];
   createMentor: (mentor: Omit<Mentor, 'id' | 'role' | 'createdAt'>) => void;
 }
 
-const defaultStudentVijay: User = {
-  id: 'usr_s_vijay',
-  name: 'Vijay Ananth R S',
-  email: 'vijay@college.edu',
-  role: 'student',
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
-  department: 'Computer Science',
-  teamRole: 'Team Leader'
+const emptyUser: User = {
+  id: '',
+  name: 'User',
+  email: '',
+  role: 'student'
 };
-
-const initialProject: Project = {
-  id: 'proj_attendance',
-  title: 'Attendance System',
-  techStack: ['React', 'TypeScript', 'Node.js', 'Python', 'OpenCV'],
-  description: 'Automated Face Recognition Attendance System with geolocation verification and real-time mentor reporting.',
-  teamId: 'team_codecrew',
-  teamName: 'CodeCrew',
-  yearCohort: '3rd Year',
-  mentorName: 'Dr. Vetri Chelvan',
-  mentorId: 'usr_mentor_vetri',
-  progressPercentage: 45,
-  currentPhase: 'Development',
-  nextDeadline: 'In 6 days',
-  daysLeft: 6,
-  githubUrl: 'https://github.com/codecrew/attendance-system',
-  status: 'ON_TRACK',
-  milestones: [
-    { id: 'm_1', title: 'System Architecture & Database Schema', status: 'Completed' },
-    { id: 'm_2', title: 'Face Embeddings Pipeline & API', status: 'In Progress' },
-    { id: 'm_3', title: 'Mobile Client & Geolocation Check', status: 'Pending' },
-    { id: 'm_4', title: 'End-to-End Validation & Final Demo', status: 'Pending' }
-  ],
-  members: [
-    { id: 'usr_s_vijay', name: 'Vijay Ananth R S', role: 'Team Leader', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80' },
-    { id: 'usr_s_priya', name: 'Priya Dharshini', role: 'Member', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80' },
-    { id: 'usr_s_karthik', name: 'Karthik Raja', role: 'Member', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=120&q=80' },
-    { id: 'usr_s_divya', name: 'Divya Bharathi', role: 'Member', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=120&q=80' }
-  ]
-};
-
-const initialSubmissions: ProgressSubmission[] = [
-  {
-    id: 'sub_cc_w4',
-    weekNumber: 4,
-    submissionDate: 'Oct 23, 2026',
-    completedTasks: [
-      'Implemented face vector embedding generation using MobileNet',
-      'Created REST endpoint for video stream chunk ingestion'
-    ],
-    currentWork: [
-      'Integrating anti-spoofing liveness detection',
-      'Testing latency under 5 concurrent camera feeds'
-    ],
-    blockers: [
-      'Occasional False Rejection Rate during low-light conditions in Classroom 204'
-    ],
-    nextWeekGoals: [
-      'Complete camera sync and calibrate confidence threshold'
-    ],
-    files: [
-      { name: 'Architecture_Diagram_v2.pdf', size: '2.1 MB', type: 'pdf', url: '/api/files/architecture-diagram-v2.pdf' },
-      { name: 'FRR_Analysis.png', size: '840 KB', type: 'image', url: '/api/files/frr-analysis.png' }
-    ],
-    githubUrl: 'https://github.com/codecrew/attendance-system/tree/week-4',
-    status: 'Waiting for review'
-  }
-];
-
-const initialTeams: TeamCardData[] = [
-  { id: 'team_codecrew', name: 'CodeCrew', projectTitle: 'Attendance System', memberCount: 4, yearCohort: '3rd Year', status: 'ON_TRACK', progressPercentage: 45 },
-  { id: 'team_techtitans', name: 'TechTitans', projectTitle: 'Campus Connect', memberCount: 4, yearCohort: '3rd Year', status: 'NEEDS_ATTENTION', progressPercentage: 30 },
-  { id: 'team_bytebuilders', name: 'ByteBuilders', projectTitle: 'Library Manager', memberCount: 4, yearCohort: '3rd Year', status: 'ON_TRACK', progressPercentage: 60 },
-  { id: 'team_datadynamos', name: 'DataDynamos', projectTitle: 'Smart Health Monitoring', memberCount: 4, yearCohort: '3rd Year', status: 'ON_TRACK', progressPercentage: 70 },
-  { id: 'team_cloudcrafters', name: 'CloudCrafters', projectTitle: 'Cloud Cost Optimizer', memberCount: 2, yearCohort: '3rd Year', status: 'NEEDS_ATTENTION', progressPercentage: 20 }
-];
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User>(() => {
     const saved = localStorage.getItem('pm_user');
-    return saved ? JSON.parse(saved) : defaultStudentVijay;
+    return saved ? JSON.parse(saved) : emptyUser;
   });
 
   const [activeView, setActiveView] = useState<string>('home');
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  // Student preservation state
-  const [currentProject, setCurrentProject] = useState<Project | null>(initialProject);
-  const [teams, setTeams] = useState<TeamCardData[]>(initialTeams);
-  const [submissions, setSubmissions] = useState<ProgressSubmission[]>(initialSubmissions);
+  // Student state starts completely clean (no demo mock data)
+  const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [teams, setTeams] = useState<TeamCardData[]>([]);
+  const [submissions, setSubmissions] = useState<ProgressSubmission[]>([]);
   const [users] = useState<User[]>([]);
   const [mentors, setMentors] = useState<Mentor[]>([]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
+  }, []);
+
+  const refreshStudentData = useCallback(async () => {
+    const token = localStorage.getItem('pm_auth_token');
+    if (!token) return;
+
+    try {
+      const data = await api.student.getDashboard();
+      if (data?.hasTeam && data?.project) {
+        setCurrentProject({
+          ...data.project,
+          teamId: data.team.id,
+          teamName: data.team.name,
+          yearCohort: data.team.yearCohort,
+          mentorName: data.team.mentorName || 'Unassigned',
+          mentorId: data.team.mentor_id || '',
+          members: data.team.members || [],
+          milestones: data.project.milestones || []
+        });
+      } else {
+        setCurrentProject(null);
+      }
+
+      if (data?.submissions) {
+        setSubmissions(
+          data.submissions.map((s: any) => ({
+            id: s.id,
+            weekNumber: s.week,
+            submissionDate: s.date,
+            completedTasks: s.work_completed ? s.work_completed.split('\n').filter(Boolean) : [],
+            currentWork: s.current_work ? s.current_work.split('\n').filter(Boolean) : [],
+            blockers: s.blockers ? s.blockers.split('\n').filter(Boolean) : [],
+            nextWeekGoals: s.next_week_goals ? s.next_week_goals.split('\n').filter(Boolean) : [],
+            files: s.attachments || [],
+            githubUrl: s.repo_url || '',
+            status: s.status === 'APPROVED' ? 'Approved' : s.status === 'CHANGES_REQUESTED' ? 'Changes requested' : 'Waiting for review',
+            feedback: s.feedback || undefined,
+            reviewerName: s.reviewer_name || undefined
+          }))
+        );
+      } else {
+        setSubmissions([]);
+      }
+    } catch {
+      // not logged in as student or server offline
+    }
+  }, []);
+
+  const refreshTeams = useCallback(async () => {
+    const token = localStorage.getItem('pm_auth_token');
+    if (!token) return;
+
+    try {
+      const data = await api.student.getTeams();
+      if (Array.isArray(data)) {
+        setTeams(
+          data.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            projectTitle: t.projectTitle || 'Untitled Project',
+            memberCount: t.memberCount || 1,
+            yearCohort: t.yearCohort || '3rd Year',
+            status: t.projectStatus || 'ON_TRACK',
+            progressPercentage: t.progressPercentage || 0,
+            leaderName: t.leaderName,
+            mentorName: t.mentorName
+          }))
+        );
+      }
+    } catch {}
   }, []);
 
   // Sync session on mount with server /api/auth/me
@@ -142,6 +146,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (res?.user) {
             setCurrentUser(res.user);
             localStorage.setItem('pm_user', JSON.stringify(res.user));
+            if (res.user.role === 'student') {
+              refreshStudentData();
+              refreshTeams();
+            }
           }
         })
         .catch(() => {
@@ -157,7 +165,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
-  }, [showToast]);
+  }, [showToast, refreshStudentData, refreshTeams]);
 
   const login = async (credentials: { email: string; password: string }) => {
     try {
@@ -175,7 +183,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (data.user.role === 'admin') setActiveView('admin_dashboard');
       else if (data.user.role === 'mentor') setActiveView('mentor_dashboard');
-      else setActiveView('home');
+      else {
+        setActiveView('home');
+        refreshStudentData();
+        refreshTeams();
+      }
 
       showToast(`Welcome back, ${data.user.name}!`, 'success');
       return { success: true };
@@ -191,13 +203,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       localStorage.removeItem('pm_auth_token');
       localStorage.removeItem('pm_user');
+      setCurrentUser(emptyUser);
+      setCurrentProject(null);
+      setSubmissions([]);
+      setTeams([]);
       setActiveView('login');
       window.history.pushState({}, '', '/login');
       showToast('You have been logged out safely.', 'success');
     }
   };
 
-  const submitWeeklyProgress = async (payload: any) => {
+  const submitWeeklyProgress = async (payload: any): Promise<boolean> => {
     const finalFiles = payload.files || payload.attachments || [];
     const finalRepoUrl = payload.githubUrl || payload.repoUrl || (currentProject?.githubUrl ?? '');
 
@@ -210,32 +226,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         files: finalFiles
       });
       showToast('Progress report submitted to mentor successfully!', 'success');
-    } catch (e) {
-      // Fallback local update
+      await refreshStudentData();
+      return true;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to submit progress report.';
+      showToast(msg, 'error');
+      throw err;
     }
-
-    const newSub: ProgressSubmission = {
-      id: `sub_${Date.now()}`,
-      weekNumber: Number(payload.weekNumber) || 7,
-      submissionDate: 'Just now',
-      completedTasks: typeof payload.completedTasks === 'string' ? payload.completedTasks.split('\n').filter(Boolean) : payload.completedTasks || [],
-      currentWork: typeof payload.currentWork === 'string' ? payload.currentWork.split('\n').filter(Boolean) : payload.currentWork || [],
-      blockers: typeof payload.blockers === 'string' ? payload.blockers.split('\n').filter(Boolean) : payload.blockers || [],
-      nextWeekGoals: typeof payload.nextWeekGoals === 'string' ? payload.nextWeekGoals.split('\n').filter(Boolean) : payload.nextWeekGoals || [],
-      files: finalFiles,
-      githubUrl: finalRepoUrl,
-      status: 'Waiting for review'
-    };
-
-    setSubmissions((prev) => [newSub, ...prev]);
   };
 
-  const createTeam = (teamData: Omit<TeamCardData, 'id'>) => {
-    const newTeam: TeamCardData = {
-      ...teamData,
-      id: `t_${Date.now()}`
-    };
-    setTeams((prev) => [...prev, newTeam]);
+  const createTeam = async (teamData: { name: string; projectTitle: string; description?: string; yearCohort?: string; techStack?: string[]; githubUrl?: string }) => {
+    try {
+      const res = await api.student.createTeam(teamData);
+      showToast('Team & project created successfully!', 'success');
+      await refreshStudentData();
+      await refreshTeams();
+      return res;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to create team.';
+      showToast(msg, 'error');
+      throw err;
+    }
+  };
+
+  const joinTeam = async (teamId: string) => {
+    try {
+      const res = await api.student.joinTeam(teamId);
+      showToast(res.message || 'Joined team successfully!', 'success');
+      await refreshStudentData();
+      await refreshTeams();
+      return res;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to join team.';
+      showToast(msg, 'error');
+      throw err;
+    }
   };
 
   const createMentor = (mentorData: Omit<Mentor, 'id' | 'role' | 'createdAt'>) => {
@@ -266,6 +291,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submissions,
         submitWeeklyProgress,
         createTeam,
+        joinTeam,
+        refreshStudentData,
+        refreshTeams,
         users,
         mentors,
         createMentor

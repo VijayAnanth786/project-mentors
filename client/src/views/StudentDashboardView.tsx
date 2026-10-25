@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Laptop,
   Github,
@@ -23,8 +23,13 @@ import { useApp } from '../context/AppContext';
 import { DonutProgress } from '../components/DonutProgress';
 
 export const StudentDashboardView: React.FC = () => {
-  const { currentUser, currentProject, submissions, setActiveView } = useApp();
+  const { currentUser, currentProject, submissions, setActiveView, refreshStudentData } = useApp();
   const latestSub = submissions[0];
+
+  useEffect(() => {
+    refreshStudentData();
+  }, [refreshStudentData]);
+
 
   // Compute milestone stats if project is assigned
   const milestones = currentProject?.milestones ?? [];
@@ -409,11 +414,39 @@ export const StudentDashboardView: React.FC = () => {
                   );
                 })()}
 
-                {/* Status Notice */}
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center space-x-2 text-xs font-semibold text-emerald-800">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Your progress has been submitted. Awaiting review...</span>
-                </div>
+                {/* Dynamic Review & Mentor Feedback Status */}
+                {latestSub.status === 'Approved' ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 space-y-2 text-xs">
+                    <div className="flex items-center space-x-2 font-bold text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Approved by {latestSub.reviewerName || currentProject?.mentorName || 'Faculty Mentor'}</span>
+                    </div>
+                    {latestSub.feedback && (
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-100 text-emerald-900 leading-relaxed">
+                        <strong className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Faculty Feedback:</strong>
+                        {latestSub.feedback}
+                      </div>
+                    )}
+                  </div>
+                ) : latestSub.status === 'Changes requested' ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-2 text-xs">
+                    <div className="flex items-center space-x-2 font-bold text-amber-800">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Changes Requested by {latestSub.reviewerName || currentProject?.mentorName || 'Faculty Mentor'}</span>
+                    </div>
+                    {latestSub.feedback && (
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-amber-100 text-amber-900 leading-relaxed">
+                        <strong className="block text-[10px] uppercase font-bold text-amber-600 mb-0.5">Required Revisions:</strong>
+                        {latestSub.feedback}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center space-x-2 text-xs font-semibold text-blue-800">
+                    <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>Submitted Week {latestSub.weekNumber} progress report. Awaiting faculty review...</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-white rounded-2xl p-8 border border-slate-200/80 shadow-sm flex flex-col items-center justify-center text-center space-y-3">

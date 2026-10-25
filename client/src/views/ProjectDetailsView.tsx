@@ -15,7 +15,8 @@ import {
 import { useApp } from '../context/AppContext';
 
 export const ProjectDetailsView: React.FC = () => {
-  const { currentProject, setActiveView, currentUser } = useApp();
+  const { currentProject, setActiveView, currentUser, submissions } = useApp();
+
   const [activeTab, setActiveTab] = useState<'Overview' | 'Team' | 'Progress' | 'Timeline' | 'Files' | 'Reviews'>('Overview');
   const [showAiModal, setShowAiModal] = useState(false);
 
@@ -71,36 +72,43 @@ export const ProjectDetailsView: React.FC = () => {
                 <h1 className="text-xl font-black text-slate-900 tracking-tight">
                   {currentProject.title}
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  On Track
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                  currentProject.status === 'ON_TRACK'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {currentProject.status === 'ON_TRACK' ? 'On Track' : currentProject.status || 'Active'}
                 </span>
               </div>
               <p className="text-xs font-semibold text-slate-400 mt-1">
-                Team 5 • 2nd Year • MERN + Python
+                {currentProject.teamName || 'Team Project'} • {currentProject.yearCohort || 'Academic Year'} • {currentProject.techStack?.join(' + ') || 'General Project'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
-            <a
-              href={currentProject.githubUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center space-x-2 transition-all"
-            >
-              <Github className="w-4 h-4" />
-              <span>View GitHub</span>
-            </a>
+            {currentProject.githubUrl && (
+              <a
+                href={currentProject.githubUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center space-x-2 transition-all"
+              >
+                <Github className="w-4 h-4" />
+                <span>View GitHub</span>
+              </a>
+            )}
 
             <button
               onClick={() => setShowAiModal(true)}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 flex items-center space-x-2 transition-all"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 flex items-center space-x-2 transition-all cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
               <span>Ask AI Assistant</span>
             </button>
           </div>
         </div>
+
 
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-100 text-xs font-bold text-slate-500 gap-6">
@@ -186,10 +194,10 @@ export const ProjectDetailsView: React.FC = () => {
               </h3>
 
               <div className="space-y-3">
-                {currentProject.members.map((member) => (
+                {(currentProject.members || []).map((member) => (
                   <div key={member.id} className="flex items-center space-x-3 text-xs">
                     <img
-                      src={member.avatar}
+                      src={member.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'}
                       alt={member.name}
                       className="w-8 h-8 rounded-full object-cover"
                     />
@@ -209,7 +217,7 @@ export const ProjectDetailsView: React.FC = () => {
               <div className="pt-3 border-t border-slate-200">
                 <button
                   onClick={() => setActiveView('submit_progress')}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer"
                 >
                   Submit Weekly Progress
                 </button>
@@ -237,14 +245,19 @@ export const ProjectDetailsView: React.FC = () => {
               <div>
                 <span className="font-bold text-slate-900 block mb-1">Executive Summary:</span>
                 <p className="leading-relaxed">
-                  Team 5 has completed 6 of 8 milestones. Version control cadence is strong (14 commits this week). However, PDF parsing was reported as a blocker in Week 6.
+                  {currentProject.title} by {currentProject.teamName || 'Team'} is currently {currentProject.progressPercentage}% complete across {currentProject.milestones?.length || 4} defined sprint milestones.
+                  {submissions.length > 0
+                    ? ` Latest report (Week ${submissions[0].weekNumber}) is marked ${submissions[0].status.toLowerCase()}.`
+                    : ' Awaiting the first sprint progress report from the team.'}
                 </p>
               </div>
 
               <div>
                 <span className="font-bold text-slate-900 block mb-1">Mentor Action Recommendation:</span>
                 <p className="leading-relaxed bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900 font-semibold">
-                  Host a brief 15-minute screen-share specifically to guide them through PDF byte-stream extraction libraries (e.g., pdf-parse vs. pdfjs).
+                  {submissions.length > 0 && submissions[0].blockers.length > 0
+                    ? `Priority Advisory: Address reported blocker "${submissions[0].blockers[0]}" in the upcoming review session.`
+                    : 'Advisory: Maintain consistent weekly submission cadence and push clean commits to the repository.'}
                 </p>
               </div>
             </div>
@@ -252,7 +265,7 @@ export const ProjectDetailsView: React.FC = () => {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setShowAiModal(false)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
               >
                 Close
               </button>
@@ -263,3 +276,4 @@ export const ProjectDetailsView: React.FC = () => {
     </div>
   );
 };
+
