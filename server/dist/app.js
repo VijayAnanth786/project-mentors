@@ -6,8 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ensureDB = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
+const path_1 = __importDefault(require("path"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const mongoose_1 = __importDefault(require("mongoose"));
 const db_1 = require("./config/db");
 const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
 const mentorRoutes_1 = __importDefault(require("./routes/mentorRoutes"));
@@ -18,8 +18,13 @@ const teamRoutes_1 = __importDefault(require("./routes/teamRoutes"));
 const progressRoutes_1 = __importDefault(require("./routes/progressRoutes"));
 const database_1 = require("./db/database");
 const seed_1 = require("./db/seed");
-// 1. Load environment configuration
+// 1. Load environment configuration across multiple possible locations
 dotenv_1.default.config();
+dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), '.env') });
+dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), 'server/.env') });
+dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), 'atlas-credentials.env') });
+dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../server/.env') });
+dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../atlas-credentials.env') });
 // 2. Initialize Express App
 const app = (0, express_1.default)();
 // 3. Configure robust CORS middleware
@@ -95,20 +100,13 @@ apiRouter.use('/files', fileRoutes_1.default);
 apiRouter.use('/teams', teamRoutes_1.default);
 apiRouter.use('/progress', progressRoutes_1.default);
 apiRouter.get('/health', (req, res) => {
-    const readyState = mongoose_1.default.connection.readyState;
-    const stateLabels = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-    const isConnected = readyState === 1;
+    const mongoDiag = (0, db_1.getMongoDiagnostics)();
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
         service: 'ProjectMentor API',
-        mongo: {
-            status: stateLabels[readyState] || 'unknown',
-            connected: isConnected,
-            configured: Boolean(process.env.MONGO_URI),
-            host: mongoose_1.default.connection.host || null
-        },
-        storage: isConnected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
+        mongo: mongoDiag,
+        storage: mongoDiag.connected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
     });
 });
 app.use('/api', apiRouter);

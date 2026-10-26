@@ -11,7 +11,8 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "admin:setup": "tsx src/scripts/createAdmin.ts"
+    "admin:setup": "tsx src/scripts/createAdmin.ts",
+    "test:mongo": "node test-mongo.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

@@ -1,8 +1,9 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import path from 'path';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import { connectDB } from './config/db';
+import { connectDB, getMongoDiagnostics } from './config/db';
 import authRoutes from './routes/authRoutes';
 import mentorRoutes from './routes/mentorRoutes';
 import adminRoutes from './routes/adminRoutes';
@@ -13,8 +14,13 @@ import progressRoutes from './routes/progressRoutes';
 import { initSchema } from './db/database';
 import { runSeed } from './db/seed';
 
-// 1. Load environment configuration
+// 1. Load environment configuration across multiple possible locations
 dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'atlas-credentials.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../server/.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../atlas-credentials.env') });
 
 // 2. Initialize Express App
 const app = express();
@@ -97,21 +103,14 @@ apiRouter.use('/teams', teamRoutes);
 apiRouter.use('/progress', progressRoutes);
 
 apiRouter.get('/health', (req: Request, res: Response) => {
-  const readyState = mongoose.connection.readyState;
-  const stateLabels = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-  const isConnected = readyState === 1;
+  const mongoDiag = getMongoDiagnostics();
 
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'ProjectMentor API',
-    mongo: {
-      status: stateLabels[readyState] || 'unknown',
-      connected: isConnected,
-      configured: Boolean(process.env.MONGO_URI),
-      host: mongoose.connection.host || null
-    },
-    storage: isConnected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
+    mongo: mongoDiag,
+    storage: mongoDiag.connected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
   });
 });
 
