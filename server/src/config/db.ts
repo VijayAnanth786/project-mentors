@@ -11,7 +11,7 @@ const startAtlasBackgroundRetry = (mongoUri: string) => {
       return;
     }
     try {
-      const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
+      const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000, dbName: 'pulse_app' });
       console.log(`\n🚀 [MongoDB Atlas Connected] Host: ${conn.connection.host}`);
       clearInterval(interval);
     } catch {
@@ -30,7 +30,7 @@ export const connectDB = async (): Promise<void> => {
   }
 
   try {
-    const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 3000 });
+    const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 3000, dbName: 'pulse_app' });
     console.log(`🚀 MongoDB Connected: ${conn.connection.host}`);
   } catch (error: any) {
     console.warn(`\n⚠️  [MongoDB Atlas Connection Notice] Could not connect directly to Atlas cluster.`);

@@ -55,6 +55,21 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         mustChangePassword: false
       });
 
+      // Also persist to SQLite so SQLite-based queries immediately recognize the user
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+          VALUES (?, ?, ?, ?, 'student', 'active', ?)
+        `).run(newUser._id.toString(), name.trim(), normalizedEmail, passwordHash, newUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80');
+
+        db.prepare(`
+          INSERT OR IGNORE INTO student_profiles (id, user_id, department, year_cohort)
+          VALUES (?, ?, ?, ?)
+        `).run(`sp_${newUser._id}`, newUser._id.toString(), department?.trim() || 'Computer Science', year?.trim() || '1st Year');
+      } catch (sqlErr) {
+        console.warn('[SQLite dual-write notice]', sqlErr);
+      }
+
       const userObj = newUser.toJSON();
 
       res.status(201).json({

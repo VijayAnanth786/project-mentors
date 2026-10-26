@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 import { connectDB } from './config/db';
 import authRoutes from './routes/authRoutes';
 import mentorRoutes from './routes/mentorRoutes';
@@ -96,11 +97,21 @@ apiRouter.use('/teams', teamRoutes);
 apiRouter.use('/progress', progressRoutes);
 
 apiRouter.get('/health', (req: Request, res: Response) => {
+  const readyState = mongoose.connection.readyState;
+  const stateLabels = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const isConnected = readyState === 1;
+
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'ProjectMentor API',
-    database: 'MongoDB Atlas + SQLite'
+    mongo: {
+      status: stateLabels[readyState] || 'unknown',
+      connected: isConnected,
+      configured: Boolean(process.env.MONGO_URI),
+      host: mongoose.connection.host || null
+    },
+    storage: isConnected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
   });
 });
 

@@ -7,6 +7,7 @@ exports.ensureDB = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const mongoose_1 = __importDefault(require("mongoose"));
 const db_1 = require("./config/db");
 const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
 const mentorRoutes_1 = __importDefault(require("./routes/mentorRoutes"));
@@ -94,11 +95,20 @@ apiRouter.use('/files', fileRoutes_1.default);
 apiRouter.use('/teams', teamRoutes_1.default);
 apiRouter.use('/progress', progressRoutes_1.default);
 apiRouter.get('/health', (req, res) => {
+    const readyState = mongoose_1.default.connection.readyState;
+    const stateLabels = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+    const isConnected = readyState === 1;
     res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
         service: 'ProjectMentor API',
-        database: 'MongoDB Atlas + SQLite'
+        mongo: {
+            status: stateLabels[readyState] || 'unknown',
+            connected: isConnected,
+            configured: Boolean(process.env.MONGO_URI),
+            host: mongoose_1.default.connection.host || null
+        },
+        storage: isConnected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
     });
 });
 app.use('/api', apiRouter);

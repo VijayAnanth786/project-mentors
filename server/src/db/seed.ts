@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 import { db, initSchema } from './database';
+import { User } from '../models/User';
 
 export const runSeed = async (forceClean = false) => {
   initSchema();
@@ -97,6 +99,56 @@ export const runSeed = async (forceClean = false) => {
     '21CS001',
     now
   );
+
+  // Also seed MongoDB Atlas User collection if connected
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const baseUsers = [
+        {
+          name: 'Administrator',
+          email: 'admin@college.edu',
+          passwordHash: defaultPassword,
+          role: 'ADMIN',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
+          mustChangePassword: false
+        },
+        {
+          name: 'Dr. Vetri Chelvan',
+          email: 'vetri@college.edu',
+          passwordHash: defaultPassword,
+          role: 'MENTOR',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+          mustChangePassword: false
+        },
+        {
+          name: 'Vijay Ananth R S',
+          email: 'vijay@college.edu',
+          passwordHash: defaultPassword,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          year: '3rd Year',
+          college: 'College of Engineering & Technology',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
+          mustChangePassword: false
+        }
+      ];
+
+      for (const u of baseUsers) {
+        const existing = await User.findOne({ email: u.email });
+        if (!existing) {
+          await User.create(u);
+        }
+      }
+      console.log('[Seed] Base accounts verified in MongoDB Atlas.');
+    } catch (mErr) {
+      console.warn('[MongoDB Atlas Seed Warning]', mErr);
+    }
+  }
 
   console.log('[Seed] Base accounts verified: admin@college.edu, vetri@college.edu, vijay@college.edu (password: siet@2727)');
 };
