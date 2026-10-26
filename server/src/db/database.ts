@@ -2,18 +2,47 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 
-const DB_DIR = path.resolve(__dirname, '../../data');
+// In serverless environments (e.g. Vercel), only /tmp is writable
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT ||
+  process.env.NETLIFY
+);
+
+const DB_DIR = isServerless
+  ? (process.env.TMPDIR || process.env.TEMP || '/tmp')
+  : path.resolve(__dirname, '../../data');
+
 if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  } catch (dirErr) {
+    console.warn('[Database Directory Notice]', dirErr);
+  }
 }
 
 const DB_PATH = path.join(DB_DIR, 'project_mentor.db');
 
-export const db = new DatabaseSync(DB_PATH);
+let dbInstance: any;
+try {
+  dbInstance = new DatabaseSync(DB_PATH);
+  dbInstance.exec('PRAGMA foreign_keys = ON;');
+  dbInstance.exec('PRAGMA journal_mode = WAL;');
+} catch (dbErr: any) {
+  console.warn('[Database Initialization Warning] node:sqlite initialization failed:', dbErr?.message || dbErr);
+  // Resilient fallback stub to prevent process crashes if MongoDB is used
+  dbInstance = {
+    exec: () => {},
+    prepare: () => ({
+      run: () => ({ changes: 0, lastInsertRowid: 0 }),
+      get: () => null,
+      all: () => []
+    })
+  };
+}
 
-// Enable Foreign Keys and WAL Mode for high concurrency and performance
-db.exec('PRAGMA foreign_keys = ON;');
-db.exec('PRAGMA journal_mode = WAL;');
+export const db = dbInstance;
 
 export const initSchema = () => {
   db.exec(`

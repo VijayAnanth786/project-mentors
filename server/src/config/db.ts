@@ -18,6 +18,7 @@ const startAtlasBackgroundRetry = (mongoUri: string) => {
       // Atlas still rejecting IP whitelist, keep server running locally
     }
   }, 10000);
+  interval.unref();
 };
 
 export const connectDB = async (): Promise<void> => {

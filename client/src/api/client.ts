@@ -7,7 +7,7 @@ export const apiClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json'
   },
-  timeout: 15000
+  timeout: 60000 // 60s timeout for cold start resiliency
 });
 
 // Automatic JWT bearer injection
@@ -22,7 +22,7 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for session expiration & unauthorized errors
+// Response interceptor for session expiration & network diagnostics
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -30,6 +30,13 @@ apiClient.interceptors.response.use(
       localStorage.removeItem('pm_auth_token');
       localStorage.removeItem('pm_user');
       window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+    if (!error.response) {
+      if (error.code === 'ECONNABORTED') {
+        console.warn(`[API Timeout] Backend took longer than 60s to respond. It may still be waking up.`);
+      } else {
+        console.warn(`[Network Error] Could not connect to API at ${API_BASE_URL}. Check deployment status and URL configuration.`);
+      }
     }
     return Promise.reject(error);
   }

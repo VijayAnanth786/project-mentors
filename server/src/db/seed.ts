@@ -1,27 +1,30 @@
 import bcrypt from 'bcryptjs';
 import { db, initSchema } from './database';
 
-export const runSeed = async () => {
+export const runSeed = async (forceClean = false) => {
   initSchema();
 
   const defaultPassword = await bcrypt.hash('siet@2727', 10);
   const now = new Date().toISOString();
 
-  // Clear demo data: teams, projects, submissions, meetings, milestones, announcements, activity
-  db.exec(`
-    DELETE FROM feedback_history;
-    DELETE FROM weekly_submissions;
-    DELETE FROM milestones;
-    DELETE FROM team_members;
-    DELETE FROM meetings;
-    DELETE FROM activity_events;
-    DELETE FROM notifications;
-    DELETE FROM announcements;
-    DELETE FROM teams;
-    DELETE FROM projects;
-  `);
-
-  console.log('[Seed] Removed all demo teams, demo projects, and demo submissions.');
+  // Clear demo data only when explicitly instructed
+  if (forceClean) {
+    try {
+      db.exec(`
+        DELETE FROM feedback_history;
+        DELETE FROM weekly_submissions;
+        DELETE FROM milestones;
+        DELETE FROM team_members;
+        DELETE FROM meetings;
+        DELETE FROM activity_events;
+        DELETE FROM notifications;
+        DELETE FROM announcements;
+        DELETE FROM teams;
+        DELETE FROM projects;
+      `);
+      console.log('[Seed] Removed demo teams, demo projects, and demo submissions.');
+    } catch {}
+  }
 
   // Ensure base accounts exist
   const insertUser = db.prepare(`

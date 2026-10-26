@@ -1,4 +1,4 @@
-﻿services:
+services:
   - type: web
     name: project-mentors-api
     runtime: node
@@ -8,6 +8,8 @@
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 22.12.0
       - key: PORT
         value: 10000
       - key: MONGO_URI
