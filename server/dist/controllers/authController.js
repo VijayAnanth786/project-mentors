@@ -19,7 +19,7 @@ const register = async (req, res) => {
         }
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
-            res.status(400).json({ success: false, message: 'Please provide a valid institutional email address.' });
+            res.status(400).json({ success: false, message: 'Please provide a valid email address (e.g. yourname@gmail.com).' });
             return;
         }
         if (!password || typeof password !== 'string' || password.length < 6) {
@@ -395,11 +395,12 @@ const googleAuth = async (req, res) => {
                 // Create new user in MongoDB
                 const randomSalt = await bcryptjs_1.default.genSalt(10);
                 const randomHash = await bcryptjs_1.default.hash(Math.random().toString(36) + Date.now(), randomSalt);
+                const assignedRoleEnum = role === 'mentor' ? 'MENTOR' : (normalizedEmail.includes('admin') || role === 'admin' ? 'ADMIN' : 'STUDENT');
                 const newUser = await User_1.User.create({
                     name: googleName?.trim() || normalizedEmail.split('@')[0],
                     email: normalizedEmail,
                     passwordHash: randomHash,
-                    role: role === 'mentor' ? 'MENTOR' : 'STUDENT',
+                    role: assignedRoleEnum,
                     status: 'ACTIVE',
                     department: 'Computer Science',
                     year: '1st Year',
@@ -439,7 +440,7 @@ const googleAuth = async (req, res) => {
             else {
                 // Insert into SQLite
                 const sqliteId = userObj?.id || `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                const assignedRole = userObj?.role || (role === 'mentor' ? 'mentor' : 'student');
+                const assignedRole = userObj?.role || (role === 'mentor' ? 'mentor' : (normalizedEmail.includes('admin') || role === 'admin' ? 'admin' : 'student'));
                 const assignedName = userObj?.name || googleName?.trim() || normalizedEmail.split('@')[0];
                 const assignedAvatar = userObj?.avatar || googleAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`;
                 database_1.db.prepare(`
