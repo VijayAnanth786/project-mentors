@@ -84,37 +84,74 @@ export const LoginView: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingUser, setPendingUser] = useState<any | null>(null);
 
-  // Initialize native Google Identity Services if client ID is set
-  useEffect(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId || !window.google?.accounts?.id) return;
+  // Google OAuth Client ID provided by Google Cloud Console
+  const GOOGLE_CLIENT_ID =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+    '910163127647-sb8vtk7ups5nma63orcndkrj5a2chbj4.apps.googleusercontent.com';
 
-    try {
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (response: any) => {
-          if (response.credential) {
-            setGoogleLoading(true);
-            const res = await googleLogin({ credential: response.credential });
-            setGoogleLoading(false);
-            if (!res.success) {
-              setSubmitError(res.message || 'Google authentication failed.');
+  // Initialize native Google Identity Services
+  useEffect(() => {
+    let checkInterval: any = null;
+
+    const setupGoogleGsi = () => {
+      if (!window.google?.accounts?.id) return false;
+
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          cancel_on_tap_outside: false,
+          callback: async (response: any) => {
+            if (response.credential) {
+              setGoogleLoading(true);
+              setSubmitError('');
+              const res = await googleLogin({ credential: response.credential });
+              setGoogleLoading(false);
+              if (!res.success) {
+                setSubmitError(res.message || 'Google authentication failed.');
+              }
             }
           }
+        });
+
+        const slotId = mode === 'register' ? 'google-signup-btn-slot' : 'google-signin-btn-slot';
+        const slotEl = document.getElementById(slotId);
+        if (slotEl) {
+          slotEl.innerHTML = '';
+          window.google.accounts.id.renderButton(slotEl, {
+            type: 'standard',
+            theme: 'outline',
+            size: 'large',
+            text: mode === 'register' ? 'signup_with' : 'continue_with',
+            shape: 'rectangular',
+            width: 320,
+            logo_alignment: 'left'
+          });
         }
-      });
-    } catch (err) {
-      console.warn('[Google Identity Notice]', err);
+        return true;
+      } catch (err) {
+        console.warn('[Google Identity Notice]', err);
+        return false;
+      }
+    };
+
+    if (!setupGoogleGsi()) {
+      checkInterval = setInterval(() => {
+        if (setupGoogleGsi()) {
+          clearInterval(checkInterval);
+        }
+      }, 400);
     }
-  }, [googleLogin]);
+
+    return () => {
+      if (checkInterval) clearInterval(checkInterval);
+    };
+  }, [googleLogin, mode]);
 
   // Handle Google Sign In Click
   const handleGoogleSignInClick = () => {
     setSubmitError('');
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-    // If client ID is present and Google GIS is ready, trigger prompt
-    if (clientId && window.google?.accounts?.id) {
+    if (window.google?.accounts?.id) {
       try {
         window.google.accounts.id.prompt((notification: any) => {
           if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
@@ -382,20 +419,22 @@ export const LoginView: React.FC = () => {
         {/* ======================================================== */}
         {mode === 'login' && (
           <div className="space-y-4">
-            {/* Google Authentication Sign In Button */}
-            <button
-              type="button"
-              onClick={handleGoogleSignInClick}
-              disabled={loading || googleLoading}
-              className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
-            >
-              {googleLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-              ) : (
-                <GoogleIcon className="w-4 h-4 shrink-0" />
-              )}
-              <span>Continue with Google</span>
-            </button>
+            {/* Google Authentication Sign In Button (Native GIS Slot + Fallback) */}
+            <div id="google-signin-btn-slot" className="w-full flex justify-center min-h-[44px]">
+              <button
+                type="button"
+                onClick={handleGoogleSignInClick}
+                disabled={loading || googleLoading}
+                className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+              >
+                {googleLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                ) : (
+                  <GoogleIcon className="w-4 h-4 shrink-0" />
+                )}
+                <span>Continue with Google</span>
+              </button>
+            </div>
 
             {/* Divider */}
             <div className="relative my-3 flex items-center justify-center">
@@ -479,20 +518,22 @@ export const LoginView: React.FC = () => {
         {/* ======================================================== */}
         {mode === 'register' && (
           <div className="space-y-4">
-            {/* Google Quick Sign-Up */}
-            <button
-              type="button"
-              onClick={handleGoogleSignInClick}
-              disabled={loading || googleLoading}
-              className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
-            >
-              {googleLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-              ) : (
-                <GoogleIcon className="w-4 h-4 shrink-0" />
-              )}
-              <span>Sign up with Google</span>
-            </button>
+            {/* Google Quick Sign-Up (Native GIS Slot + Fallback) */}
+            <div id="google-signup-btn-slot" className="w-full flex justify-center min-h-[44px]">
+              <button
+                type="button"
+                onClick={handleGoogleSignInClick}
+                disabled={loading || googleLoading}
+                className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+              >
+                {googleLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                ) : (
+                  <GoogleIcon className="w-4 h-4 shrink-0" />
+                )}
+                <span>Sign up with Google</span>
+              </button>
+            </div>
 
             {/* Divider */}
             <div className="relative my-3 flex items-center justify-center">
