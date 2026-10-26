@@ -146,7 +146,9 @@ const login = async (req, res) => {
                     name: userDoc.name,
                     email: userDoc.email,
                     role: userDoc.role.toLowerCase(),
-                    department: userDoc.department,
+                    department: userDoc.department || 'Computer Science',
+                    year: userDoc.year || '3rd Year',
+                    college: userDoc.college || 'College of Engineering & Technology',
                     avatar: userDoc.avatar
                 };
                 mustChangePassword = userDoc.mustChangePassword;
@@ -165,12 +167,24 @@ const login = async (req, res) => {
                     res.status(401).json({ success: false, message: 'Invalid email or password.' });
                     return;
                 }
+                let dept = 'Computer Science';
+                let yr = '3rd Year';
+                try {
+                    const sp = database_1.db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id);
+                    if (sp) {
+                        dept = sp.department || dept;
+                        yr = sp.year_cohort || yr;
+                    }
+                }
+                catch { }
                 userObj = {
                     id: row.id,
                     name: row.name,
                     email: row.email,
                     role: row.role.toLowerCase(),
-                    department: 'Computer Science',
+                    department: dept,
+                    year: yr,
+                    college: 'College of Engineering & Technology',
                     avatar: row.avatar
                 };
                 mustChangePassword = false;
@@ -187,7 +201,9 @@ const login = async (req, res) => {
             name: userObj.name,
             email: userObj.email,
             role: userObj.role,
-            department: userObj.department
+            department: userObj.department,
+            year: userObj.year,
+            college: userObj.college
         }, secret, { expiresIn: expiresIn || '7d' });
         const redirectUrl = userObj.role === 'admin'
             ? '/admin/dashboard'
@@ -226,7 +242,10 @@ const getMe = async (req, res) => {
                     success: true,
                     user: {
                         ...user.toJSON(),
-                        role: user.role.toLowerCase()
+                        role: user.role.toLowerCase(),
+                        department: user.department || 'Computer Science',
+                        year: user.year || '3rd Year',
+                        college: user.college || 'College of Engineering & Technology'
                     }
                 });
                 return;
@@ -235,6 +254,16 @@ const getMe = async (req, res) => {
         // Local fallback
         const row = database_1.db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
         if (row) {
+            let dept = 'Computer Science';
+            let yr = '3rd Year';
+            try {
+                const sp = database_1.db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id);
+                if (sp) {
+                    dept = sp.department || dept;
+                    yr = sp.year_cohort || yr;
+                }
+            }
+            catch { }
             res.json({
                 success: true,
                 user: {
@@ -242,7 +271,9 @@ const getMe = async (req, res) => {
                     name: row.name,
                     email: row.email,
                     role: row.role.toLowerCase(),
-                    department: req.user.department || 'Computer Science',
+                    department: dept,
+                    year: yr,
+                    college: 'College of Engineering & Technology',
                     avatar: row.avatar
                 }
             });
@@ -255,7 +286,10 @@ const getMe = async (req, res) => {
                 name: req.user.name,
                 email: req.user.email,
                 role: req.user.role.toLowerCase(),
-                department: req.user.department
+                department: req.user.department || 'Computer Science',
+                year: req.user.year || '3rd Year',
+                college: req.user.college || 'College of Engineering & Technology',
+                avatar: req.user.avatar
             }
         });
     }

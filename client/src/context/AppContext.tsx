@@ -77,6 +77,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const data = await api.student.getDashboard();
+
+      if (data?.studentProfile) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          ...data.studentProfile
+        }));
+        try {
+          const existing = JSON.parse(localStorage.getItem('pm_user') || '{}');
+          localStorage.setItem('pm_user', JSON.stringify({ ...existing, ...data.studentProfile }));
+        } catch {}
+      }
+
       if (data?.hasTeam && data?.project) {
         setCurrentProject({
           ...data.project,

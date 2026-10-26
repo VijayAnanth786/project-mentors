@@ -29,6 +29,16 @@ const authenticate = async (req, res, next) => {
             try {
                 const row = database_1.db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id);
                 if (row) {
+                    let dept = 'Computer Science';
+                    let yr = '3rd Year';
+                    try {
+                        const sp = database_1.db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id);
+                        if (sp) {
+                            dept = sp.department || dept;
+                            yr = sp.year_cohort || yr;
+                        }
+                    }
+                    catch { }
                     userDoc = {
                         _id: row.id,
                         id: row.id,
@@ -36,7 +46,10 @@ const authenticate = async (req, res, next) => {
                         email: row.email,
                         role: row.role,
                         status: row.status.toUpperCase(),
-                        department: 'Computer Science',
+                        department: dept,
+                        year: yr,
+                        college: 'College of Engineering & Technology',
+                        avatar: row.avatar,
                         mustChangePassword: false
                     };
                 }
@@ -53,6 +66,9 @@ const authenticate = async (req, res, next) => {
                 role: decoded.role || 'student',
                 status: 'ACTIVE',
                 department: decoded.department || 'Computer Science',
+                year: decoded.year || '3rd Year',
+                college: decoded.college || 'College of Engineering & Technology',
+                avatar: decoded.avatar,
                 mustChangePassword: false
             };
         }
@@ -70,7 +86,10 @@ const authenticate = async (req, res, next) => {
             email: userDoc.email,
             role: userDoc.role.toLowerCase(),
             status: userDoc.status.toLowerCase(),
-            department: userDoc.department,
+            department: userDoc.department || 'Computer Science',
+            year: userDoc.year || '3rd Year',
+            college: userDoc.college || 'College of Engineering & Technology',
+            avatar: userDoc.avatar,
             mustChangePassword: userDoc.mustChangePassword
         };
         // If user must change password, restrict them from protected operational routes

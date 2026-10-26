@@ -11,6 +11,9 @@ export interface AuthUser {
   role: UserRole;
   status: UserStatus;
   department?: string;
+  year?: string;
+  college?: string;
+  avatar?: string;
   mustChangePassword?: boolean;
 }
 
@@ -45,6 +48,16 @@ export const authenticate = async (
       try {
         const row = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id) as any;
         if (row) {
+          let dept = 'Computer Science';
+          let yr = '3rd Year';
+          try {
+            const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id) as any;
+            if (sp) {
+              dept = sp.department || dept;
+              yr = sp.year_cohort || yr;
+            }
+          } catch {}
+
           userDoc = {
             _id: row.id,
             id: row.id,
@@ -52,7 +65,10 @@ export const authenticate = async (
             email: row.email,
             role: row.role,
             status: row.status.toUpperCase(),
-            department: 'Computer Science',
+            department: dept,
+            year: yr,
+            college: 'College of Engineering & Technology',
+            avatar: row.avatar,
             mustChangePassword: false
           };
         }
@@ -69,6 +85,9 @@ export const authenticate = async (
         role: decoded.role || 'student',
         status: 'ACTIVE',
         department: decoded.department || 'Computer Science',
+        year: decoded.year || '3rd Year',
+        college: decoded.college || 'College of Engineering & Technology',
+        avatar: decoded.avatar,
         mustChangePassword: false
       };
     }
@@ -89,7 +108,10 @@ export const authenticate = async (
       email: userDoc.email,
       role: (userDoc.role.toLowerCase() as UserRole),
       status: (userDoc.status.toLowerCase() as UserStatus),
-      department: userDoc.department,
+      department: userDoc.department || 'Computer Science',
+      year: userDoc.year || '3rd Year',
+      college: userDoc.college || 'College of Engineering & Technology',
+      avatar: userDoc.avatar,
       mustChangePassword: userDoc.mustChangePassword
     };
 

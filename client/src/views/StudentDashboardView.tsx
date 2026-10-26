@@ -17,7 +17,11 @@ import {
   MessageSquare,
   Inbox,
   FolderPlus,
-  ArrowRight
+  ArrowRight,
+  GraduationCap,
+  Building2,
+  BookOpen,
+  ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { DonutProgress } from '../components/DonutProgress';
@@ -73,6 +77,72 @@ export const StudentDashboardView: React.FC = () => {
             <span>Find a Team</span>
           </button>
         )}
+      </div>
+
+      {/* Student Academic Details & Profile Card */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div className="flex items-center space-x-3.5">
+            <img
+              src={currentUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80'}
+              alt={currentUser.name}
+              className="w-14 h-14 rounded-2xl object-cover border-2 border-blue-500/20 shadow-xs"
+            />
+            <div>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-lg font-black text-slate-900">{currentUser.name}</h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  Student
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium">{currentUser.email}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Account Active</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Student Details Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center space-x-1.5 text-slate-400">
+              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-[11px] font-semibold">Department</span>
+            </div>
+            <span className="font-bold text-slate-800 block text-xs">{currentUser.department || 'Computer Science'}</span>
+          </div>
+
+          <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center space-x-1.5 text-slate-400">
+              <GraduationCap className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="text-[11px] font-semibold">Year / Cohort</span>
+            </div>
+            <span className="font-bold text-slate-800 block text-xs">{currentUser.year || '3rd Year'}</span>
+          </div>
+
+          <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center space-x-1.5 text-slate-400">
+              <Building2 className="w-3.5 h-3.5 text-purple-600" />
+              <span className="text-[11px] font-semibold">College</span>
+            </div>
+            <span className="font-bold text-slate-800 truncate block text-xs">{currentUser.college || 'College of Engineering & Technology'}</span>
+          </div>
+
+          <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center space-x-1.5 text-slate-400">
+              <Users className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-[11px] font-semibold">Team Status</span>
+            </div>
+            <span className="font-bold text-slate-800 truncate block text-xs">
+              {currentProject ? currentProject.teamName : 'No Team Assigned'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Main Grid: Left 2 Cols, Right 1 Col */}

@@ -8,6 +8,9 @@ export interface User {
   password?: string;
   avatar?: string;
   department?: string;
+  year?: string;
+  college?: string;
+  rollNumber?: string;
   teamRole?: 'Team Leader' | 'Member';
 }
 
