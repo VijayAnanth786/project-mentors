@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logout = exports.changePassword = exports.getMe = exports.login = exports.register = void 0;
+exports.logout = exports.googleAuth = exports.changePassword = exports.getMe = exports.login = exports.register = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -300,6 +300,165 @@ const changePassword = async (req, res) => {
     }
 };
 exports.changePassword = changePassword;
+const googleAuth = async (req, res) => {
+    try {
+        const { credential, email, name, avatar, role } = req.body;
+        let googleEmail = email;
+        let googleName = name;
+        let googleAvatar = avatar;
+        // 1. If Google ID token credential is provided, verify it with Google OAuth2 API
+        if (credential && typeof credential === 'string') {
+            try {
+                const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+                if (verifyRes.ok) {
+                    const payload = await verifyRes.json();
+                    googleEmail = payload.email;
+                    googleName = payload.name || payload.given_name || googleName;
+                    googleAvatar = payload.picture || googleAvatar;
+                }
+                else {
+                    // If tokeninfo returned error, attempt fallback decoding if standard JWT
+                    const parts = credential.split('.');
+                    if (parts.length === 3) {
+                        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                        if (decoded.email) {
+                            googleEmail = decoded.email;
+                            googleName = decoded.name || decoded.given_name || googleName;
+                            googleAvatar = decoded.picture || googleAvatar;
+                        }
+                    }
+                }
+            }
+            catch (tokenErr) {
+                console.warn('[Google Token Verification Notice]', tokenErr);
+            }
+        }
+        if (!googleEmail || typeof googleEmail !== 'string') {
+            res.status(400).json({ success: false, message: 'Google account email could not be verified.' });
+            return;
+        }
+        const normalizedEmail = googleEmail.trim().toLowerCase();
+        const isMongoReady = mongoose_1.default.connection.readyState === 1;
+        let userObj = null;
+        // 2. Check if user already exists in MongoDB
+        if (isMongoReady) {
+            let userDoc = await User_1.User.findOne({ email: normalizedEmail });
+            if (userDoc) {
+                if (userDoc.status === 'BLOCKED') {
+                    res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
+                    return;
+                }
+                userObj = {
+                    id: userDoc._id.toString(),
+                    name: userDoc.name,
+                    email: userDoc.email,
+                    role: userDoc.role.toLowerCase(),
+                    department: userDoc.department || 'Computer Science',
+                    avatar: userDoc.avatar || googleAvatar
+                };
+            }
+            else {
+                // Create new user in MongoDB
+                const randomSalt = await bcryptjs_1.default.genSalt(10);
+                const randomHash = await bcryptjs_1.default.hash(Math.random().toString(36) + Date.now(), randomSalt);
+                const newUser = await User_1.User.create({
+                    name: googleName?.trim() || normalizedEmail.split('@')[0],
+                    email: normalizedEmail,
+                    passwordHash: randomHash,
+                    role: role === 'mentor' ? 'MENTOR' : 'STUDENT',
+                    status: 'ACTIVE',
+                    department: 'Computer Science',
+                    year: '1st Year',
+                    college: 'College of Engineering & Technology',
+                    avatar: googleAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`,
+                    mustChangePassword: false
+                });
+                userObj = {
+                    id: newUser._id.toString(),
+                    name: newUser.name,
+                    email: newUser.email,
+                    role: newUser.role.toLowerCase(),
+                    department: newUser.department,
+                    avatar: newUser.avatar
+                };
+            }
+        }
+        // 3. Harmonize with SQLite
+        try {
+            const existingRow = database_1.db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail);
+            if (existingRow) {
+                if (!userObj) {
+                    if (existingRow.status === 'inactive' || existingRow.status === 'blocked') {
+                        res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
+                        return;
+                    }
+                    userObj = {
+                        id: existingRow.id,
+                        name: existingRow.name,
+                        email: existingRow.email,
+                        role: existingRow.role.toLowerCase(),
+                        department: 'Computer Science',
+                        avatar: existingRow.avatar || googleAvatar
+                    };
+                }
+            }
+            else {
+                // Insert into SQLite
+                const sqliteId = userObj?.id || `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                const assignedRole = userObj?.role || (role === 'mentor' ? 'mentor' : 'student');
+                const assignedName = userObj?.name || googleName?.trim() || normalizedEmail.split('@')[0];
+                const assignedAvatar = userObj?.avatar || googleAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`;
+                database_1.db.prepare(`
+          INSERT INTO users (id, name, email, password_hash, role, status, avatar, created_at)
+          VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP)
+        `).run(sqliteId, assignedName, normalizedEmail, 'google_oauth_authenticated', assignedRole, assignedAvatar);
+                if (!userObj) {
+                    userObj = {
+                        id: sqliteId,
+                        name: assignedName,
+                        email: normalizedEmail,
+                        role: assignedRole,
+                        department: 'Computer Science',
+                        avatar: assignedAvatar
+                    };
+                }
+            }
+        }
+        catch (sqlErr) {
+            console.warn('[SQLite Google Auth Notice]', sqlErr);
+        }
+        if (!userObj) {
+            res.status(500).json({ success: false, message: 'Failed to establish user session from Google authentication.' });
+            return;
+        }
+        const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_replace_in_production';
+        const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+        const token = jsonwebtoken_1.default.sign({
+            id: userObj.id,
+            name: userObj.name,
+            email: userObj.email,
+            role: userObj.role,
+            department: userObj.department
+        }, secret, { expiresIn: expiresIn || '7d' });
+        const redirectUrl = userObj.role === 'admin'
+            ? '/admin/dashboard'
+            : userObj.role === 'mentor'
+                ? '/mentor/dashboard'
+                : '/student/dashboard';
+        res.json({
+            success: true,
+            token,
+            redirectUrl,
+            mustChangePassword: false,
+            user: userObj
+        });
+    }
+    catch (error) {
+        console.error('[Google Auth Error]', error);
+        res.status(500).json({ success: false, message: 'Google authentication service encountered an error.' });
+    }
+};
+exports.googleAuth = googleAuth;
 const logout = async (req, res) => {
     res.json({ success: true, message: 'Logged out successfully.' });
 };

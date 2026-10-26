@@ -29,6 +29,7 @@ apiClient.interceptors.response.use(
     const requestUrl = error.config?.url || '';
     const isAuthEndpoint = requestUrl.includes('/auth/login') ||
                            requestUrl.includes('/auth/register') ||
+                           requestUrl.includes('/auth/google') ||
                            requestUrl.includes('/auth/me');
 
     if (error.response?.status === 401 && !isAuthEndpoint) {
@@ -53,6 +54,10 @@ export const api = {
   auth: {
     login: async (credentials: { email: string; password: string }) => {
       const res = await apiClient.post('/auth/login', credentials);
+      return res.data;
+    },
+    googleLogin: async (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
+      const res = await apiClient.post('/auth/google', data);
       return res.data;
     },
     register: async (payload: { name: string; email: string; password: string; department?: string; year?: string; college?: string }) => {

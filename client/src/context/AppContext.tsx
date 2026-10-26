@@ -20,6 +20,10 @@ interface AppContextType {
     user?: User;
     token?: string;
   }>;
+  googleLogin: (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
   logout: () => Promise<void>;
   showToast: (message: string, type?: 'success' | 'error') => void;
 
@@ -198,6 +202,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const googleLogin = async (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
+    try {
+      const res = await api.auth.googleLogin(data);
+      if (!res.success) {
+        return { success: false, message: res.message || 'Google sign-in failed.' };
+      }
+      localStorage.setItem('pm_auth_token', res.token);
+      localStorage.setItem('pm_user', JSON.stringify(res.user));
+      setCurrentUser(res.user);
+
+      const targetPath = res.redirectUrl || (res.user.role === 'admin' ? '/admin/dashboard' : res.user.role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard');
+      window.history.pushState({}, '', targetPath);
+
+      if (res.user.role === 'admin') setActiveView('admin_dashboard');
+      else if (res.user.role === 'mentor') setActiveView('mentor_dashboard');
+      else {
+        setActiveView('home');
+        refreshStudentData();
+        refreshTeams();
+      }
+
+      showToast(`Signed in with Google as ${res.user.name}!`, 'success');
+      return { success: true };
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Google sign-in failed.';
+      return { success: false, message };
+    }
+  };
+
   const logout = async () => {
     try {
       await api.auth.logout();
@@ -284,6 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeView,
         setActiveView,
         login,
+        googleLogin,
         logout,
         showToast,
         currentProject,

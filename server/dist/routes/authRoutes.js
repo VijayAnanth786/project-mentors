@@ -21,6 +21,7 @@ const loginLimiter = (0, express_rate_limit_1.default)({
 });
 router.post('/register', authController_1.register);
 router.post('/login', loginLimiter, authController_1.login);
+router.post('/google', authController_1.googleAuth);
 router.get('/me', authMiddleware_1.authenticateJWT, authController_1.getMe);
 router.post('/change-password', authMiddleware_1.authenticateJWT, authController_1.changePassword);
 router.post('/logout', authController_1.logout);

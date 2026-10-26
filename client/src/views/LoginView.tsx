@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   GraduationCap,
   ArrowRight,
@@ -10,24 +10,62 @@ import {
   UserPlus,
   LogIn,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  X,
+  Mail,
+  User as UserIcon,
+  Sparkles
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api/client';
 
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+// Official Google Brand Color 'G' Icon
+const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none">
+    <path
+      fill="#4285F4"
+      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.94 0 12s.45 3.84 1.25 5.42l4.03-3.15z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+    />
+  </svg>
+);
+
 export const LoginView: React.FC = () => {
-  const { login, setActiveView, showToast, setCurrentUser } = useApp();
+  const { login, googleLogin, setActiveView, showToast, setCurrentUser } = useApp();
 
   // Mode: 'login' | 'register' | 'change_password'
   const [mode, setMode] = useState<'login' | 'register' | 'change_password'>('login');
 
-  // Shared / Login state (pre-filled with verified demo account)
-  const [email, setEmail] = useState('vijay@college.edu');
-  const [password, setPassword] = useState('siet@2727');
+  // Shared / Login state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [successNotice, setSuccessNotice] = useState('');
+
+  // Google Modal state for flexible sign in
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+  const [customGoogleName, setCustomGoogleName] = useState('');
 
   // Student Registration state
   const [regName, setRegName] = useState('');
@@ -46,7 +84,71 @@ export const LoginView: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingUser, setPendingUser] = useState<any | null>(null);
 
-  // 1. Handle Login
+  // Initialize native Google Identity Services if client ID is set
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId || !window.google?.accounts?.id) return;
+
+    try {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: any) => {
+          if (response.credential) {
+            setGoogleLoading(true);
+            const res = await googleLogin({ credential: response.credential });
+            setGoogleLoading(false);
+            if (!res.success) {
+              setSubmitError(res.message || 'Google authentication failed.');
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('[Google Identity Notice]', err);
+    }
+  }, [googleLogin]);
+
+  // Handle Google Sign In Click
+  const handleGoogleSignInClick = () => {
+    setSubmitError('');
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+    // If client ID is present and Google GIS is ready, trigger prompt
+    if (clientId && window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.prompt((notification: any) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setShowGoogleModal(true);
+          }
+        });
+        return;
+      } catch {
+        setShowGoogleModal(true);
+      }
+    } else {
+      setShowGoogleModal(true);
+    }
+  };
+
+  // Perform Google Auth execution with selected or custom profile
+  const executeGoogleAuth = async (profile: { email: string; name?: string; avatar?: string; role?: string }) => {
+    setSubmitError('');
+    setGoogleLoading(true);
+    try {
+      const res = await googleLogin(profile);
+      if (!res.success) {
+        setSubmitError(res.message || 'Google sign-in failed.');
+      } else {
+        setShowGoogleModal(false);
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Google sign-in encountered an error.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // 1. Handle Standard Email/Password Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -69,17 +171,16 @@ export const LoginView: React.FC = () => {
       if (!result.success) {
         setSubmitError(result.message || 'Invalid email or password.');
       } else if (result.mustChangePassword) {
-        // Mentor or account requires immediate password change
         setPendingUser(result.user);
-        setCurrentPassword(password); // Pre-fill with the credentials just verified
+        setCurrentPassword(password);
         setMode('change_password');
         showToast('Password change required before accessing the dashboard.', 'error');
       }
     } catch (err: any) {
       if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK' || !err?.response) {
-        setSubmitError('Network Error: Unable to reach backend on http://localhost:5000. Ensure the backend has connected to MongoDB Atlas and is running.');
+        setSubmitError('Network Error: Unable to reach backend server. Please verify your connection.');
       } else {
-        setSubmitError(err?.message || 'Login failed. Please verify your credentials and network connection.');
+        setSubmitError(err?.message || 'Login failed. Please verify your credentials.');
       }
     } finally {
       setLoading(false);
@@ -126,11 +227,10 @@ export const LoginView: React.FC = () => {
 
       if (res.success) {
         showToast('Account registered successfully! Please sign in.', 'success');
-        setSuccessNotice('Registration confirmed in MongoDB Atlas. You can now sign in with your credentials.');
+        setSuccessNotice('Registration confirmed. You can now sign in with your credentials.');
         setEmail(regEmail.trim());
         setPassword('');
         setMode('login');
-        // Clear registration form
         setRegName('');
         setRegEmail('');
         setRegPassword('');
@@ -140,7 +240,7 @@ export const LoginView: React.FC = () => {
       }
     } catch (err: any) {
       if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK' || !err?.response) {
-        setSubmitError('Network Error: The backend server at http://localhost:5000 is not reachable. The server waits for MongoDB Atlas to connect before accepting requests. Please ensure your current IP (106.192.173.136) is whitelisted in your MongoDB Atlas Network Access.');
+        setSubmitError('Network Error: The backend server is not reachable.');
       } else {
         setSubmitError(err?.response?.data?.message || err?.message || 'Registration failed. An account with this email may already exist.');
       }
@@ -185,14 +285,12 @@ export const LoginView: React.FC = () => {
       if (res.success) {
         showToast('Password updated successfully! Welcome to your dashboard.', 'success');
 
-        // Update local session
         if (pendingUser) {
           const updatedUser = { ...pendingUser, mustChangePassword: false };
           setCurrentUser(updatedUser);
           localStorage.setItem('pm_user', JSON.stringify(updatedUser));
         }
 
-        // Navigate to appropriate role dashboard
         const role = (pendingUser?.role || '').toLowerCase();
         const targetPath = role === 'admin' ? '/admin/dashboard' : role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard';
         window.history.pushState({}, '', targetPath);
@@ -283,48 +381,341 @@ export const LoginView: React.FC = () => {
         {/* VIEW 1: SIGN IN FORM */}
         {/* ======================================================== */}
         {mode === 'login' && (
-          <form onSubmit={handleLogin} className="space-y-4 text-xs font-semibold">
-            {/* Email */}
+          <div className="space-y-4">
+            {/* Google Authentication Sign In Button */}
+            <button
+              type="button"
+              onClick={handleGoogleSignInClick}
+              disabled={loading || googleLoading}
+              className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+            >
+              {googleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+              ) : (
+                <GoogleIcon className="w-4 h-4 shrink-0" />
+              )}
+              <span>Continue with Google</span>
+            </button>
+
+            {/* Divider */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-slate-200 w-full" />
+              <span className="bg-white px-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
+                or sign in with email
+              </span>
+              <div className="border-t border-slate-200 w-full" />
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4 text-xs font-semibold">
+              {/* Email */}
+              <div>
+                <label className="text-slate-700 block mb-1">Institutional Email</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setSubmitError('');
+                  }}
+                  placeholder="e.g. yourname@college.edu"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                />
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="text-slate-700 block mb-1">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setSubmitError('');
+                    }}
+                    placeholder="Enter password"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                    tabIndex={-1}
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={loading || googleLoading}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Verifying Credentials...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign In to Dashboard</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* VIEW 2: STUDENT PUBLIC REGISTRATION FORM */}
+        {/* ======================================================== */}
+        {mode === 'register' && (
+          <div className="space-y-4">
+            {/* Google Quick Sign-Up */}
+            <button
+              type="button"
+              onClick={handleGoogleSignInClick}
+              disabled={loading || googleLoading}
+              className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+            >
+              {googleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+              ) : (
+                <GoogleIcon className="w-4 h-4 shrink-0" />
+              )}
+              <span>Sign up with Google</span>
+            </button>
+
+            {/* Divider */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-slate-200 w-full" />
+              <span className="bg-white px-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
+                or register with institutional email
+              </span>
+              <div className="border-t border-slate-200 w-full" />
+            </div>
+
+            <form onSubmit={handleRegister} className="space-y-3.5 text-xs font-semibold">
+              {/* Full Name */}
+              <div>
+                <label className="text-slate-700 block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={regName}
+                  onChange={(e) => {
+                    setRegName(e.target.value);
+                    setSubmitError('');
+                  }}
+                  placeholder="e.g. Vijay Ananth R S"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="text-slate-700 block mb-1">Institutional Email</label>
+                <input
+                  type="email"
+                  required
+                  value={regEmail}
+                  onChange={(e) => {
+                    setRegEmail(e.target.value);
+                    setSubmitError('');
+                  }}
+                  placeholder="e.g. yourname@college.edu"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Department & Year (2 Columns) */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-slate-700 block mb-1">Department</label>
+                  <select
+                    value={regDept}
+                    onChange={(e) => setRegDept(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="Computer Science">Computer Science</option>
+                    <option value="Information Technology">Information Tech</option>
+                    <option value="Electronics & Communication">Electronics (ECE)</option>
+                    <option value="Electrical & Electronics">Electrical (EEE)</option>
+                    <option value="Mechanical Engineering">Mechanical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-700 block mb-1">Year / Cohort</label>
+                  <select
+                    value={regYear}
+                    onChange={(e) => setRegYear(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="1st Year">1st Year</option>
+                    <option value="2nd Year">2nd Year</option>
+                    <option value="3rd Year">3rd Year</option>
+                    <option value="4th Year">Final Year (4th)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* College / Institution Name */}
+              <div>
+                <label className="text-slate-700 block mb-1">College / Institution</label>
+                <input
+                  type="text"
+                  value={regCollege}
+                  onChange={(e) => setRegCollege(e.target.value)}
+                  placeholder="e.g. College of Engineering & Technology"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="text-slate-700 block mb-1">Password</label>
+                <div className="relative">
+                  <input
+                    type={showRegPassword ? 'text' : 'password'}
+                    required
+                    value={regPassword}
+                    onChange={(e) => {
+                      setRegPassword(e.target.value);
+                      setSubmitError('');
+                    }}
+                    placeholder="At least 6 characters"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                    tabIndex={-1}
+                  >
+                    {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <label className="text-slate-700 block mb-1">Confirm Password</label>
+                <input
+                  type="password"
+                  required
+                  value={regConfirmPassword}
+                  onChange={(e) => {
+                    setRegConfirmPassword(e.target.value);
+                    setSubmitError('');
+                  }}
+                  placeholder="Re-enter password"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Submit Registration */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={loading || googleLoading}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Creating Student Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Complete Registration</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* VIEW 3: MANDATORY PASSWORD CHANGE FORM */}
+        {/* ======================================================== */}
+        {mode === 'change_password' && (
+          <form onSubmit={handleChangePassword} className="space-y-4 text-xs font-semibold">
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start gap-2.5">
+              <KeyRound className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Security Notice: Password Reset Required</p>
+                <p className="text-[11px] font-normal mt-0.5 text-amber-700">
+                  You are logging in with a temporary default password. Please choose a strong, personal password to activate full dashboard access.
+                </p>
+              </div>
+            </div>
+
+            {/* Current Password */}
             <div>
-              <label className="text-slate-700 block mb-1">Institutional Email</label>
+              <label className="text-slate-700 block mb-1">Current (Temporary) Password</label>
               <input
-                type="email"
+                type="password"
                 required
-                value={email}
+                value={currentPassword}
                 onChange={(e) => {
-                  setEmail(e.target.value);
+                  setCurrentPassword(e.target.value);
                   setSubmitError('');
                 }}
-                placeholder="e.g. vetri@college.edu or vijay@college.edu"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                placeholder="Temporary password"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               />
             </div>
 
-            {/* Password */}
+            {/* New Password */}
             <div>
-              <label className="text-slate-700 block mb-1">Password</label>
+              <label className="text-slate-700 block mb-1">New Secure Password</label>
               <div className="relative">
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type={showNewPassword ? 'text' : 'password'}
                   required
-                  value={password}
+                  value={newPassword}
                   onChange={(e) => {
-                    setPassword(e.target.value);
+                    setNewPassword(e.target.value);
                     setSubmitError('');
                   }}
-                  placeholder="Enter password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  placeholder="At least 6 characters"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v) => !v)}
+                  onClick={() => setShowNewPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                   tabIndex={-1}
-                  aria-label="Toggle password visibility"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+            </div>
+
+            {/* Confirm New Password */}
+            <div>
+              <label className="text-slate-700 block mb-1">Confirm New Password</label>
+              <input
+                type="password"
+                required
+                value={confirmNewPassword}
+                onChange={(e) => {
+                  setConfirmNewPassword(e.target.value);
+                  setSubmitError('');
+                }}
+                placeholder="Re-enter new password"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
             </div>
 
             {/* Submit Button */}
@@ -337,274 +728,7 @@ export const LoginView: React.FC = () => {
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Verifying Credentials...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Sign In to Dashboard</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Quick Demo Credentials Helper */}
-            <div className="pt-3 border-t border-slate-100 space-y-2">
-              <p className="text-[11px] text-slate-500 font-medium text-center">
-                Quick Demo Credentials (Password: <code className="text-blue-600 font-mono font-bold">siet@2727</code>):
-              </p>
-              <div className="grid grid-cols-3 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('vijay@college.edu');
-                    setPassword('siet@2727');
-                    setSubmitError('');
-                  }}
-                  className="px-2 py-1.5 text-[11px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors text-center cursor-pointer"
-                >
-                  Student
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('vetri@college.edu');
-                    setPassword('siet@2727');
-                    setSubmitError('');
-                  }}
-                  className="px-2 py-1.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors text-center cursor-pointer"
-                >
-                  Mentor
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin@college.edu');
-                    setPassword('siet@2727');
-                    setSubmitError('');
-                  }}
-                  className="px-2 py-1.5 text-[11px] font-bold bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors text-center cursor-pointer"
-                >
-                  Admin
-                </button>
-              </div>
-            </div>
-          </form>
-        )}
-
-        {/* ======================================================== */}
-        {/* VIEW 2: STUDENT PUBLIC REGISTRATION FORM */}
-        {/* ======================================================== */}
-        {mode === 'register' && (
-          <form onSubmit={handleRegister} className="space-y-3.5 text-xs font-semibold">
-            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-[11px] font-medium">
-              Student Registration assigns <strong>STUDENT</strong> role and automatically registers your profile in MongoDB Atlas.
-            </div>
-
-            {/* Full Name */}
-            <div>
-              <label className="text-slate-700 block mb-1">Full Name</label>
-              <input
-                type="text"
-                required
-                value={regName}
-                onChange={(e) => {
-                  setRegName(e.target.value);
-                  setSubmitError('');
-                }}
-                placeholder="e.g. Vijay Ananth R S"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="text-slate-700 block mb-1">Institutional Email</label>
-              <input
-                type="email"
-                required
-                value={regEmail}
-                onChange={(e) => {
-                  setRegEmail(e.target.value);
-                  setSubmitError('');
-                }}
-                placeholder="e.g. vijay@college.edu"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Department & Year */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-slate-700 block mb-1">Department</label>
-                <select
-                  value={regDept}
-                  onChange={(e) => setRegDept(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                >
-                  <option value="Computer Science">Computer Science</option>
-                  <option value="Information Technology">Information Technology</option>
-                  <option value="Electronics & Communication">Electronics & Comm</option>
-                  <option value="Mechanical Engineering">Mechanical</option>
-                  <option value="Electrical Engineering">Electrical</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-slate-700 block mb-1">Year Cohort</label>
-                <select
-                  value={regYear}
-                  onChange={(e) => setRegYear(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                >
-                  <option value="1st Year">1st Year</option>
-                  <option value="2nd Year">2nd Year</option>
-                  <option value="3rd Year">3rd Year</option>
-                  <option value="4th Year">4th Year</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Create Password (min 6 characters)</label>
-              <div className="relative">
-                <input
-                  type={showRegPassword ? 'text' : 'password'}
-                  required
-                  value={regPassword}
-                  onChange={(e) => {
-                    setRegPassword(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="Choose a strong password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowRegPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                  tabIndex={-1}
-                >
-                  {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Confirm Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Confirm Password</label>
-              <input
-                type={showRegPassword ? 'text' : 'password'}
-                required
-                value={regConfirmPassword}
-                onChange={(e) => {
-                  setRegConfirmPassword(e.target.value);
-                  setSubmitError('');
-                }}
-                placeholder="Re-enter password"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Submit Register Button */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-emerald-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Registering with MongoDB...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Create Student Account</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ======================================================== */}
-        {/* VIEW 3: MANDATORY PASSWORD CHANGE SCREEN */}
-        {/* ======================================================== */}
-        {mode === 'change_password' && (
-          <form onSubmit={handleChangePassword} className="space-y-4 text-xs font-semibold">
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
-              <div className="flex items-center gap-1.5 text-amber-900 font-bold">
-                <KeyRound className="w-4 h-4 text-amber-600" />
-                <span>Password Change Required</span>
-              </div>
-              <p className="text-[11px] text-amber-800 leading-relaxed font-normal">
-                Your account was created with a temporary password. Please set a new personal password to unlock full dashboard access.
-              </p>
-            </div>
-
-            {/* Current Temporary Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Current Temporary Password</label>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-
-            {/* New Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">New Personal Password (min 6 characters)</label>
-              <div className="relative">
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                  tabIndex={-1}
-                >
-                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Confirm New Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Confirm New Password</label>
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                required
-                value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
-                placeholder="Re-enter new password"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-
-            {/* Submit Password Change */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Updating Password in MongoDB...</span>
+                    <span>Updating Password...</span>
                   </>
                 ) : (
                   <>
@@ -620,9 +744,145 @@ export const LoginView: React.FC = () => {
         {/* Footer Security Badging */}
         <div className="flex items-center justify-center space-x-1.5 text-[11px] text-slate-400 font-medium pt-2 border-t border-slate-100">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>MongoDB Atlas • Role Guarded • Salted Bcrypt</span>
+          <span>Google OAuth • Institutional Role Guarded • JWT Verified</span>
         </div>
       </div>
+
+      {/* ======================================================== */}
+      {/* GOOGLE AUTHENTICATION MODAL */}
+      {/* ======================================================== */}
+      {showGoogleModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <GoogleIcon className="w-5 h-5" />
+                <span className="font-bold text-sm text-slate-800">Sign in with Google</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGoogleModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Choose an existing institutional Google profile or enter your personal Google email:
+            </p>
+
+            {/* Quick Profile Choices */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => executeGoogleAuth({
+                  email: 'vijay@college.edu',
+                  name: 'Vijay Ananth R S',
+                  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
+                  role: 'student'
+                })}
+                disabled={googleLoading}
+                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
+                    VA
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-blue-700">Vijay Ananth</div>
+                    <div className="text-[11px] text-slate-400">vijay@college.edu</div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                  Student
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => executeGoogleAuth({
+                  email: 'vetri@college.edu',
+                  name: 'Dr. Vetri Chelvan',
+                  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+                  role: 'mentor'
+                })}
+                disabled={googleLoading}
+                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0">
+                    VC
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Dr. Vetri Chelvan</div>
+                    <div className="text-[11px] text-slate-400">vetri@college.edu</div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  Mentor
+                </span>
+              </button>
+            </div>
+
+            {/* Custom Google Email Input */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <label className="text-[11px] font-semibold text-slate-600 block">
+                Or enter any Google Account email:
+              </label>
+              <div className="space-y-2">
+                <input
+                  type="email"
+                  value={customGoogleEmail}
+                  onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                  placeholder="e.g. yourname@gmail.com"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+                <input
+                  type="text"
+                  value={customGoogleName}
+                  onChange={(e) => setCustomGoogleName(e.target.value)}
+                  placeholder="Your Full Name (optional)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  disabled={!customGoogleEmail.trim() || googleLoading}
+                  onClick={() => executeGoogleAuth({
+                    email: customGoogleEmail.trim(),
+                    name: customGoogleName.trim() || undefined,
+                    role: mode === 'register' ? 'student' : undefined
+                  })}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  {googleLoading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <GoogleIcon className="w-3.5 h-3.5" />
+                      <span>Continue with this Account</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-1 text-center">
+              <button
+                type="button"
+                onClick={() => setShowGoogleModal(false)}
+                className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
