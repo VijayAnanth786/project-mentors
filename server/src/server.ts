@@ -20,8 +20,20 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // 3. Configure middleware
+const allowedOrigins = [
+  /^https:\/\/.*\.vercel\.app$/,   // all Vercel preview & production deployments
+  /^http:\/\/localhost:\d+$/,       // local development
+];
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // allow requests with no origin (curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some((pattern) => pattern.test(origin))) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy: origin ${origin} not allowed`));
+    }
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
