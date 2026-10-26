@@ -153,7 +153,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         })
         .catch(() => {
-          // Token invalid; handled by axios response interceptor
+          localStorage.removeItem('pm_auth_token');
+          localStorage.removeItem('pm_user');
         });
     }
 

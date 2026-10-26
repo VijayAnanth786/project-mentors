@@ -21,9 +21,9 @@ export const LoginView: React.FC = () => {
   // Mode: 'login' | 'register' | 'change_password'
   const [mode, setMode] = useState<'login' | 'register' | 'change_password'>('login');
 
-  // Shared / Login state
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // Shared / Login state (pre-filled with verified demo account)
+  const [email, setEmail] = useState('vijay@college.edu');
+  const [password, setPassword] = useState('siet@2727');
   const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
