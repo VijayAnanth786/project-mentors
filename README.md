@@ -308,9 +308,9 @@ The current client includes a browser-only role-based flow for Student, Admin, a
 
 | Role | Email | Password | Landing view |
 |---|---|---|---|
-| Student | `vijay@college.edu` | `student123` | Student dashboard |
-| Admin | `admin@college.edu` | `admin123` | Admin dashboard |
-| Mentor | `mentor@college.edu` | `mentor123` | Project dashboard |
+| Student | `vijay@gmail.com` | `siet@2727` | Student dashboard |
+| Admin | `admin@gmail.com` | `siet@2727` | Admin dashboard |
+| Mentor | `vetri@gmail.com` | `siet@2727` | Project dashboard |
 
 ### Client structure
 

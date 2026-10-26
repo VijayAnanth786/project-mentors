@@ -190,7 +190,7 @@ export const LoginView: React.FC = () => {
     e.preventDefault();
 
     if (!email.trim()) {
-      setSubmitError('Please enter your institutional email address.');
+      setSubmitError('Please enter your email address (e.g. yourname@gmail.com).');
       return;
     }
 
@@ -235,7 +235,7 @@ export const LoginView: React.FC = () => {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!regEmail.trim() || !emailRegex.test(regEmail.trim())) {
-      setSubmitError('Please enter a valid institutional email address.');
+      setSubmitError('Please enter a valid email address (e.g. yourname@gmail.com).');
       return;
     }
 
@@ -448,7 +448,7 @@ export const LoginView: React.FC = () => {
             <form onSubmit={handleLogin} className="space-y-4 text-xs font-semibold">
               {/* Email */}
               <div>
-                <label className="text-slate-700 block mb-1">Institutional Email</label>
+                <label className="text-slate-700 block mb-1">Email Address (Gmail)</label>
                 <input
                   type="email"
                   required
@@ -457,7 +457,7 @@ export const LoginView: React.FC = () => {
                     setEmail(e.target.value);
                     setSubmitError('');
                   }}
-                  placeholder="e.g. yourname@college.edu"
+                  placeholder="e.g. yourname@gmail.com"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                 />
               </div>
@@ -539,7 +539,7 @@ export const LoginView: React.FC = () => {
             <div className="relative my-3 flex items-center justify-center">
               <div className="border-t border-slate-200 w-full" />
               <span className="bg-white px-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
-                or register with institutional email
+                or register with email
               </span>
               <div className="border-t border-slate-200 w-full" />
             </div>
@@ -563,7 +563,7 @@ export const LoginView: React.FC = () => {
 
               {/* Email */}
               <div>
-                <label className="text-slate-700 block mb-1">Institutional Email</label>
+                <label className="text-slate-700 block mb-1">Email Address (Gmail)</label>
                 <input
                   type="email"
                   required
@@ -572,7 +572,7 @@ export const LoginView: React.FC = () => {
                     setRegEmail(e.target.value);
                     setSubmitError('');
                   }}
-                  placeholder="e.g. yourname@college.edu"
+                  placeholder="e.g. yourname@gmail.com"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
@@ -811,7 +811,7 @@ export const LoginView: React.FC = () => {
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Choose an existing institutional Google profile or enter your personal Google email:
+              Choose a Google account or enter your personal Gmail address:
             </p>
 
             {/* Quick Profile Choices */}
@@ -819,7 +819,7 @@ export const LoginView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => executeGoogleAuth({
-                  email: 'vijay@college.edu',
+                  email: 'vijay@gmail.com',
                   name: 'Vijay Ananth R S',
                   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
                   role: 'student'
@@ -833,7 +833,7 @@ export const LoginView: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-800 group-hover:text-blue-700">Vijay Ananth</div>
-                    <div className="text-[11px] text-slate-400">vijay@college.edu</div>
+                    <div className="text-[11px] text-slate-400">vijay@gmail.com</div>
                   </div>
                 </div>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
@@ -844,7 +844,7 @@ export const LoginView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => executeGoogleAuth({
-                  email: 'vetri@college.edu',
+                  email: 'vetri@gmail.com',
                   name: 'Dr. Vetri Chelvan',
                   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
                   role: 'mentor'
@@ -858,11 +858,36 @@ export const LoginView: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Dr. Vetri Chelvan</div>
-                    <div className="text-[11px] text-slate-400">vetri@college.edu</div>
+                    <div className="text-[11px] text-slate-400">vetri@gmail.com</div>
                   </div>
                 </div>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                   Mentor
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => executeGoogleAuth({
+                  email: 'admin@gmail.com',
+                  name: 'Administrator',
+                  avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
+                  role: 'admin'
+                })}
+                disabled={googleLoading}
+                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-purple-400 hover:bg-purple-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 font-bold text-xs flex items-center justify-center shrink-0">
+                    AD
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-purple-700">Administrator</div>
+                    <div className="text-[11px] text-slate-400">admin@gmail.com</div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                  Admin
                 </span>
               </button>
             </div>

@@ -102,9 +102,9 @@ export const AdminDashboardView: React.FC = () => {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!trimmedEmail) {
-      errors.email = 'Institutional email is required.';
+      errors.email = 'Email address is required.';
     } else if (!emailRegex.test(trimmedEmail)) {
-      errors.email = 'Please enter a valid email address (e.g. mentor@college.edu).';
+      errors.email = 'Please enter a valid email address (e.g. mentor@gmail.com).';
     }
 
     if (!trimmedDept) {
@@ -544,7 +544,7 @@ export const AdminDashboardView: React.FC = () => {
               />
             </FormField>
 
-            <FormField label="Institutional Email" required={true} error={fieldErrors.email}>
+            <FormField label="Email Address (Gmail)" required={true} error={fieldErrors.email}>
               <input
                 type="email"
                 value={newMentorEmail}
@@ -552,7 +552,7 @@ export const AdminDashboardView: React.FC = () => {
                   setNewMentorEmail(e.target.value);
                   if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
                 }}
-                placeholder="e.g. mentor.faculty@college.edu"
+                placeholder="e.g. mentor.faculty@gmail.com"
                 className={`w-full bg-slate-50 border rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 ${
                   fieldErrors.email ? 'border-rose-400 focus:ring-rose-500/20' : 'border-slate-200 focus:ring-blue-500/20'
                 }`}

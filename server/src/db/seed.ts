@@ -44,10 +44,20 @@ export const runSeed = async (forceClean = false) => {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  // 1. Admin Account
+  // 1. Admin Account (Primary: admin@gmail.com, Fallback: admin@college.edu)
   const adminId = 'usr_admin_1';
   insertUser.run(
     adminId,
+    'Administrator',
+    'admin@gmail.com',
+    defaultPassword,
+    'admin',
+    'active',
+    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
+    now
+  );
+  insertUser.run(
+    'usr_admin_edu',
     'Administrator',
     'admin@college.edu',
     defaultPassword,
@@ -57,10 +67,20 @@ export const runSeed = async (forceClean = false) => {
     now
   );
 
-  // 2. Mentor Account (Clean, 0 teams assigned initially)
+  // 2. Mentor Account (Primary: vetri@gmail.com, Fallback: vetri@college.edu)
   const vetriId = 'usr_mentor_vetri';
   insertUser.run(
     vetriId,
+    'Dr. Vetri Chelvan',
+    'vetri@gmail.com',
+    defaultPassword,
+    'mentor',
+    'active',
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+    now
+  );
+  insertUser.run(
+    'usr_mentor_vetri_edu',
     'Dr. Vetri Chelvan',
     'vetri@college.edu',
     defaultPassword,
@@ -79,10 +99,20 @@ export const runSeed = async (forceClean = false) => {
     now
   );
 
-  // 3. Student Account (Clean, ready to create or join a team)
+  // 3. Student Account (Primary: vijay@gmail.com, Fallback: vijay@college.edu)
   const vijayId = 'usr_s_vijay';
   insertUser.run(
     vijayId,
+    'Vijay Ananth R S',
+    'vijay@gmail.com',
+    defaultPassword,
+    'student',
+    'active',
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
+    now
+  );
+  insertUser.run(
+    'usr_s_vijay_edu',
     'Vijay Ananth R S',
     'vijay@college.edu',
     defaultPassword,
@@ -106,6 +136,16 @@ export const runSeed = async (forceClean = false) => {
       const baseUsers = [
         {
           name: 'Administrator',
+          email: 'admin@gmail.com',
+          passwordHash: defaultPassword,
+          role: 'ADMIN',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
+          mustChangePassword: false
+        },
+        {
+          name: 'Administrator',
           email: 'admin@college.edu',
           passwordHash: defaultPassword,
           role: 'ADMIN',
@@ -116,12 +156,34 @@ export const runSeed = async (forceClean = false) => {
         },
         {
           name: 'Dr. Vetri Chelvan',
+          email: 'vetri@gmail.com',
+          passwordHash: defaultPassword,
+          role: 'MENTOR',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+          mustChangePassword: false
+        },
+        {
+          name: 'Dr. Vetri Chelvan',
           email: 'vetri@college.edu',
           passwordHash: defaultPassword,
           role: 'MENTOR',
           status: 'ACTIVE',
           department: 'Computer Science',
           avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+          mustChangePassword: false
+        },
+        {
+          name: 'Vijay Ananth R S',
+          email: 'vijay@gmail.com',
+          passwordHash: defaultPassword,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          department: 'Computer Science',
+          year: '3rd Year',
+          college: 'College of Engineering & Technology',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
           mustChangePassword: false
         },
         {
@@ -150,5 +212,5 @@ export const runSeed = async (forceClean = false) => {
     }
   }
 
-  console.log('[Seed] Base accounts verified: admin@college.edu, vetri@college.edu, vijay@college.edu (password: siet@2727)');
+  console.log('[Seed] Base accounts verified: admin@gmail.com, vetri@gmail.com, vijay@gmail.com (password: siet@2727)');
 };

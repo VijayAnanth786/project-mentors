@@ -119,17 +119,17 @@ const studentNames = [
 const studentUsers: MockUser[] = studentNames.map((name, index) => ({
   id: `user-student-${index + 1}`,
   name,
-  email: `${name.toLowerCase().replace(/\s+/g, '.')}@college.edu`,
+  email: `${name.toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
   role: 'student',
   status: index === 14 ? 'inactive' : 'active'
 }));
 
 export const initialMockDashboardState: MockDashboardState = {
   users: [
-    { id: 'user-mentor-vetri', name: 'Vetri', email: 'vetri@college.edu', role: 'mentor', status: 'active' },
-    { id: 'user-mentor-anika', name: 'Anika Rao', email: 'anika@college.edu', role: 'mentor', status: 'active' },
-    { id: 'user-admin', name: 'Admin', email: 'admin@college.edu', role: 'admin', status: 'active' },
-    { id: 'user-inactive', name: 'Former Mentor', email: 'former@college.edu', role: 'mentor', status: 'inactive' },
+    { id: 'user-mentor-vetri', name: 'Vetri', email: 'vetri@gmail.com', role: 'mentor', status: 'active' },
+    { id: 'user-mentor-anika', name: 'Anika Rao', email: 'anika@gmail.com', role: 'mentor', status: 'active' },
+    { id: 'user-admin', name: 'Admin', email: 'admin@gmail.com', role: 'admin', status: 'active' },
+    { id: 'user-inactive', name: 'Former Mentor', email: 'former@gmail.com', role: 'mentor', status: 'inactive' },
     ...studentUsers
   ],
   mentors: [
