@@ -1,4 +1,10 @@
 import mongoose from 'mongoose';
+import dns from 'dns';
+
+// Reliable DNS resolvers for SRV record resolution across all networks
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch {}
 
 let isRetrying = false;
 let lastMongoError: string | null = null;

@@ -2,6 +2,11 @@ const path = require('path');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const https = require('https');
+const dns = require('dns');
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch {}
 
 // Load env files in priority order
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
