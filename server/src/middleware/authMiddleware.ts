@@ -42,19 +42,35 @@ export const authenticate = async (
     }
 
     if (!userDoc) {
-      const row = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id) as any;
-      if (row) {
-        userDoc = {
-          _id: row.id,
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          role: row.role,
-          status: row.status.toUpperCase(),
-          department: 'Computer Science',
-          mustChangePassword: false
-        };
-      }
+      try {
+        const row = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id) as any;
+        if (row) {
+          userDoc = {
+            _id: row.id,
+            id: row.id,
+            name: row.name,
+            email: row.email,
+            role: row.role,
+            status: row.status.toUpperCase(),
+            department: 'Computer Science',
+            mustChangePassword: false
+          };
+        }
+      } catch {}
+    }
+
+    // In serverless multi-container environments, respect verified signed JWT token claims
+    if (!userDoc && decoded && decoded.id && decoded.email) {
+      userDoc = {
+        _id: decoded.id,
+        id: decoded.id,
+        name: decoded.name || 'User',
+        email: decoded.email,
+        role: decoded.role || 'student',
+        status: 'ACTIVE',
+        department: decoded.department || 'Computer Science',
+        mustChangePassword: false
+      };
     }
 
     if (!userDoc) {

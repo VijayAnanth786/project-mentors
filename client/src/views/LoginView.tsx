@@ -347,6 +347,48 @@ export const LoginView: React.FC = () => {
                 )}
               </button>
             </div>
+
+            {/* Quick Demo Credentials Helper */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <p className="text-[11px] text-slate-500 font-medium text-center">
+                Quick Demo Credentials (Password: <code className="text-blue-600 font-mono font-bold">siet@2727</code>):
+              </p>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('vijay@college.edu');
+                    setPassword('siet@2727');
+                    setSubmitError('');
+                  }}
+                  className="px-2 py-1.5 text-[11px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors text-center cursor-pointer"
+                >
+                  Student
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('vetri@college.edu');
+                    setPassword('siet@2727');
+                    setSubmitError('');
+                  }}
+                  className="px-2 py-1.5 text-[11px] font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors text-center cursor-pointer"
+                >
+                  Mentor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('admin@college.edu');
+                    setPassword('siet@2727');
+                    setSubmitError('');
+                  }}
+                  className="px-2 py-1.5 text-[11px] font-bold bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg transition-colors text-center cursor-pointer"
+                >
+                  Admin
+                </button>
+              </div>
+            </div>
           </form>
         )}
 

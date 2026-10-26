@@ -26,7 +26,10 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.config?.url || '';
+    const isAuthEndpoint = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
+
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('pm_auth_token');
       localStorage.removeItem('pm_user');
       window.dispatchEvent(new Event('auth:unauthorized'));
