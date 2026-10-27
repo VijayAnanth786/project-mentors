@@ -2,19 +2,17 @@ import React, { useState, useEffect } from 'react';
 import {
   GraduationCap,
   ArrowRight,
-  ShieldCheck,
   Eye,
   EyeOff,
   Loader2,
-  KeyRound,
-  UserPlus,
-  LogIn,
   CheckCircle2,
   AlertCircle,
   X,
   Mail,
   User as UserIcon,
-  Sparkles
+  Sparkles,
+  KeyRound,
+  ArrowLeft
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api/client';
@@ -62,6 +60,9 @@ export const LoginView: React.FC = () => {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [successNotice, setSuccessNotice] = useState('');
 
+  // Forgot password modal
+  const [showForgotModal, setShowForgotModal] = useState(false);
+
   // Google Modal state for flexible sign in
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [customGoogleEmail, setCustomGoogleEmail] = useState('');
@@ -84,7 +85,7 @@ export const LoginView: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingUser, setPendingUser] = useState<any | null>(null);
 
-  // Google OAuth Client ID provided by Google Cloud Console
+  // Google OAuth Client ID
   const GOOGLE_CLIENT_ID =
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     '910163127647-sb8vtk7ups5nma63orcndkrj5a2chbj4.apps.googleusercontent.com';
@@ -112,21 +113,6 @@ export const LoginView: React.FC = () => {
             }
           }
         });
-
-        const slotId = mode === 'register' ? 'google-signup-btn-slot' : 'google-signin-btn-slot';
-        const slotEl = document.getElementById(slotId);
-        if (slotEl) {
-          slotEl.innerHTML = '';
-          window.google.accounts.id.renderButton(slotEl, {
-            type: 'standard',
-            theme: 'outline',
-            size: 'large',
-            text: mode === 'register' ? 'signup_with' : 'continue_with',
-            shape: 'rectangular',
-            width: 320,
-            logo_alignment: 'left'
-          });
-        }
         return true;
       } catch (err) {
         console.warn('[Google Identity Notice]', err);
@@ -145,7 +131,7 @@ export const LoginView: React.FC = () => {
     return () => {
       if (checkInterval) clearInterval(checkInterval);
     };
-  }, [googleLogin, mode]);
+  }, [googleLogin]);
 
   // Handle Google Sign In Click
   const handleGoogleSignInClick = () => {
@@ -346,606 +332,503 @@ export const LoginView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/30 via-slate-900 to-slate-950">
-      <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-slate-200 shadow-2xl space-y-6">
+    <div className="min-h-screen bg-[#F0F2FD] flex items-center justify-center p-4 sm:p-6 lg:p-10 font-sans">
+      <div className="bg-white rounded-[32px] overflow-hidden shadow-2xl max-w-5xl w-full grid grid-cols-1 lg:grid-cols-2 min-h-[640px] border border-slate-100">
 
-        {/* Brand */}
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-500/30">
-            <GraduationCap className="w-7 h-7" />
+        {/* ======================================================== */}
+        {/* LEFT PANEL: VIBRANT BRAND GRADIENT & GEOMETRIC SHOWCASE  */}
+        {/* ======================================================== */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-[#38B6FF] via-[#4361EE] to-[#5A189A] p-8 sm:p-12 lg:p-14 flex flex-col justify-between text-white">
+          {/* Subtle Geometric Polygons Overlay */}
+          <div className="absolute inset-0 pointer-events-none opacity-20">
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/30 rounded-full blur-2xl transform rotate-45" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-cyan-300/30 rounded-3xl blur-xl transform rotate-12" />
+            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-purple-900/40 rounded-full blur-2xl" />
+            {/* Geometric Angled Panels */}
+            <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 400 600" fill="none">
+              <path d="M-50 150 L250 -50 L450 100 L150 300 Z" fill="white" fillOpacity="0.06" />
+              <path d="M50 350 L400 150 L450 450 L100 650 Z" fill="white" fillOpacity="0.08" />
+              <path d="M-100 450 L200 250 L350 550 L50 750 Z" fill="white" fillOpacity="0.05" />
+            </svg>
           </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">ProjectMentor</h1>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            BUILD • LEARN • GROW
-          </p>
+
+          {/* Brand Pill Badge */}
+          <div className="relative z-10 flex items-center">
+            <div className="inline-flex items-center gap-2.5 bg-white/95 backdrop-blur-md px-4 py-2 rounded-2xl shadow-sm">
+              <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-[#4361EE] to-[#38B6FF] flex items-center justify-center text-white shadow-xs">
+                <GraduationCap className="w-4 h-4" />
+              </div>
+              <span className="text-sm font-black text-slate-900 tracking-tight">ProjectMentor</span>
+            </div>
+          </div>
+
+          {/* Hero Slogan & Message */}
+          <div className="relative z-10 my-auto py-12 space-y-4">
+            <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-black tracking-tight leading-[1.15] text-white">
+              Learn, Grow, and Succeed
+            </h1>
+            <p className="text-sm sm:text-base text-blue-100/90 font-medium leading-relaxed max-w-sm">
+              Build your projects, track weekly milestone goals, and take the next step in your engineering journey.
+            </p>
+          </div>
+
+          {/* Bottom Accent */}
+          <div className="relative z-10 flex items-center gap-2 text-xs font-semibold text-blue-200/80">
+            <span className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse" />
+            <span>Collegiate Project Governance Platform</span>
+          </div>
         </div>
 
-        {/* Mode Selector Tabs (only shown if not in mandatory change-password mode) */}
-        {mode !== 'change_password' && (
-          <div className="flex bg-slate-100 p-1 rounded-xl">
+        {/* ======================================================== */}
+        {/* RIGHT PANEL: CLEAN WHITE AUTHENTICATION DESK             */}
+        {/* ======================================================== */}
+        <div className="p-8 sm:p-12 lg:p-14 flex flex-col justify-between bg-white">
+          {/* Top Bar: Back Link + Mode Switcher */}
+          <div className="flex items-center justify-between text-xs pb-4 border-b border-slate-100">
             <button
               type="button"
-              onClick={() => {
-                setMode('login');
-                setSubmitError('');
-                setSuccessNotice('');
-              }}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'login'
-                  ? 'bg-white text-blue-600 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              onClick={() => setActiveView('home')}
+              className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold transition-colors cursor-pointer"
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to home</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('register');
-                setSubmitError('');
-                setSuccessNotice('');
-              }}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'register'
-                  ? 'bg-white text-blue-600 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Student Register</span>
-            </button>
-          </div>
-        )}
 
-        {/* Success Notice */}
-        {successNotice && (
-          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <span>{successNotice}</span>
-          </div>
-        )}
-
-        {/* Error Message */}
-        {submitError && (
-          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-medium flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-            <span>{submitError}</span>
-          </div>
-        )}
-
-        {/* ======================================================== */}
-        {/* VIEW 1: SIGN IN FORM */}
-        {/* ======================================================== */}
-        {mode === 'login' && (
-          <div className="space-y-4">
-            {/* Google Authentication Sign In Button (Native GIS Slot + Fallback) */}
-            <div id="google-signin-btn-slot" className="w-full flex justify-center min-h-[44px]">
-              <button
-                type="button"
-                onClick={handleGoogleSignInClick}
-                disabled={loading || googleLoading}
-                className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
-              >
-                {googleLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                ) : (
-                  <GoogleIcon className="w-4 h-4 shrink-0" />
-                )}
-                <span>Continue with Google</span>
-              </button>
-            </div>
-
-            {/* Divider */}
-            <div className="relative my-3 flex items-center justify-center">
-              <div className="border-t border-slate-200 w-full" />
-              <span className="bg-white px-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
-                or sign in with email
-              </span>
-              <div className="border-t border-slate-200 w-full" />
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-4 text-xs font-semibold">
-              {/* Email */}
-              <div>
-                <label className="text-slate-700 block mb-1">Email Address (Gmail)</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="e.g. yourname@gmail.com"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="text-slate-700 block mb-1">Password</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      setSubmitError('');
-                    }}
-                    placeholder="Enter password"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    tabIndex={-1}
-                    aria-label="Toggle password visibility"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <div className="pt-2">
+            {mode !== 'change_password' && (
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">
+                  {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+                </span>
                 <button
-                  type="submit"
-                  disabled={loading || googleLoading}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === 'login' ? 'register' : 'login');
+                    setSubmitError('');
+                    setSuccessNotice('');
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-800 font-bold transition-all hover:bg-slate-50 cursor-pointer"
                 >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Verifying Credentials...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Sign In to Dashboard</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
+                  {mode === 'login' ? 'Register' : 'Sign In'}
                 </button>
               </div>
-            </form>
+            )}
           </div>
-        )}
 
-        {/* ======================================================== */}
-        {/* VIEW 2: STUDENT PUBLIC REGISTRATION FORM */}
-        {/* ======================================================== */}
-        {mode === 'register' && (
-          <div className="space-y-4">
-            {/* Google Quick Sign-Up (Native GIS Slot + Fallback) */}
-            <div id="google-signup-btn-slot" className="w-full flex justify-center min-h-[44px]">
-              <button
-                type="button"
-                onClick={handleGoogleSignInClick}
-                disabled={loading || googleLoading}
-                className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
-              >
-                {googleLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                ) : (
-                  <GoogleIcon className="w-4 h-4 shrink-0" />
-                )}
-                <span>Sign up with Google</span>
-              </button>
+          {/* Main Form Center Area */}
+          <div className="py-6 my-auto max-w-sm w-full mx-auto space-y-5">
+            {/* Form Title & Subtitle */}
+            <div className="text-center space-y-1.5">
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                {mode === 'login'
+                  ? 'Sign In to Your Account'
+                  : mode === 'register'
+                  ? 'Create Your Account'
+                  : 'Update Temporary Password'}
+              </h2>
+              <p className="text-xs text-slate-500 font-medium">
+                {mode === 'login'
+                  ? 'Access your dashboard and continue your learning journey.'
+                  : mode === 'register'
+                  ? 'Join as a student to form project teams and submit weekly progress.'
+                  : 'Enter a secure permanent password to activate your dashboard.'}
+              </p>
             </div>
 
-            {/* Divider */}
-            <div className="relative my-3 flex items-center justify-center">
-              <div className="border-t border-slate-200 w-full" />
-              <span className="bg-white px-2.5 text-[10px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
-                or register with email
-              </span>
-              <div className="border-t border-slate-200 w-full" />
-            </div>
+            {/* Error & Success Notices */}
+            {submitError && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 text-xs font-medium flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <span>{submitError}</span>
+              </div>
+            )}
+            {successNotice && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{successNotice}</span>
+              </div>
+            )}
 
-            <form onSubmit={handleRegister} className="space-y-3.5 text-xs font-semibold">
-              {/* Full Name */}
-              <div>
-                <label className="text-slate-700 block mb-1">Full Name</label>
+            {/* Google Authentication Button */}
+            {mode !== 'change_password' && (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={handleGoogleSignInClick}
+                  disabled={loading || googleLoading}
+                  className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 font-bold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+                >
+                  {googleLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                  ) : (
+                    <GoogleIcon className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>Login with Google</span>
+                </button>
+
+                {/* Divider */}
+                <div className="relative flex items-center justify-center">
+                  <div className="border-t border-slate-200 w-full" />
+                  <span className="bg-white px-3 text-[11px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">
+                    or
+                  </span>
+                  <div className="border-t border-slate-200 w-full" />
+                </div>
+              </div>
+            )}
+
+            {/* 1. SIGN IN FORM */}
+            {mode === 'login' && (
+              <form onSubmit={handleLogin} className="space-y-3.5 text-xs font-semibold">
+                <div>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setSubmitError('');
+                    }}
+                    placeholder="Email"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all text-xs"
+                  />
+                </div>
+
+                <div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        setSubmitError('');
+                      }}
+                      placeholder="Password"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                      tabIndex={-1}
+                      aria-label="Toggle password visibility"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading || googleLoading}
+                    className="w-full py-3 bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer text-xs"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Signing In...</span>
+                      </>
+                    ) : (
+                      <span>Login</span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Forgot Password Link */}
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(true)}
+                    className="text-slate-500 hover:text-indigo-600 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* 2. REGISTRATION FORM */}
+            {mode === 'register' && (
+              <form onSubmit={handleRegister} className="space-y-3 text-xs font-semibold">
                 <input
                   type="text"
                   required
                   value={regName}
-                  onChange={(e) => {
-                    setRegName(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="e.g. Vijay Ananth R S"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  onChange={(e) => setRegName(e.target.value)}
+                  placeholder="Full Name"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                 />
-              </div>
 
-              {/* Email */}
-              <div>
-                <label className="text-slate-700 block mb-1">Email Address (Gmail)</label>
                 <input
                   type="email"
                   required
                   value={regEmail}
-                  onChange={(e) => {
-                    setRegEmail(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="e.g. yourname@gmail.com"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  onChange={(e) => setRegEmail(e.target.value)}
+                  placeholder="Email"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                 />
-              </div>
 
-              {/* Department & Year (2 Columns) */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-slate-700 block mb-1">Department</label>
+                <div className="grid grid-cols-2 gap-2.5">
                   <select
                     value={regDept}
                     onChange={(e) => setRegDept(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                   >
                     <option value="Computer Science">Computer Science</option>
-                    <option value="Information Technology">Information Tech</option>
-                    <option value="Electronics & Communication">Electronics (ECE)</option>
-                    <option value="Electrical & Electronics">Electrical (EEE)</option>
-                    <option value="Mechanical Engineering">Mechanical</option>
+                    <option value="Information Tech">Information Tech</option>
+                    <option value="Electronics & Comm">Electronics</option>
+                    <option value="Mechanical Eng">Mechanical</option>
                   </select>
-                </div>
-                <div>
-                  <label className="text-slate-700 block mb-1">Year / Cohort</label>
+
                   <select
                     value={regYear}
                     onChange={(e) => setRegYear(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                   >
                     <option value="1st Year">1st Year</option>
                     <option value="2nd Year">2nd Year</option>
                     <option value="3rd Year">3rd Year</option>
-                    <option value="4th Year">Final Year (4th)</option>
+                    <option value="4th Year">4th Year</option>
                   </select>
                 </div>
-              </div>
 
-              {/* College / Institution Name */}
-              <div>
-                <label className="text-slate-700 block mb-1">College / Institution</label>
-                <input
-                  type="text"
-                  value={regCollege}
-                  onChange={(e) => setRegCollege(e.target.value)}
-                  placeholder="e.g. College of Engineering & Technology"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="text-slate-700 block mb-1">Password</label>
                 <div className="relative">
                   <input
                     type={showRegPassword ? 'text' : 'password'}
                     required
                     value={regPassword}
-                    onChange={(e) => {
-                      setRegPassword(e.target.value);
-                      setSubmitError('');
-                    }}
-                    placeholder="At least 6 characters"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    onChange={(e) => setRegPassword(e.target.value)}
+                    placeholder="Create Password (min. 6 chars)"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                   />
                   <button
                     type="button"
                     onClick={() => setShowRegPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    tabIndex={-1}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   >
                     {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
 
-              {/* Confirm Password */}
-              <div>
-                <label className="text-slate-700 block mb-1">Confirm Password</label>
                 <input
                   type="password"
                   required
                   value={regConfirmPassword}
-                  onChange={(e) => {
-                    setRegConfirmPassword(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="Re-enter password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  onChange={(e) => setRegConfirmPassword(e.target.value)}
+                  placeholder="Confirm Password"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                 />
-              </div>
 
-              {/* Submit Registration */}
-              <div className="pt-2">
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading || googleLoading}
+                    className="w-full py-3 bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer text-xs"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Registering...</span>
+                      </>
+                    ) : (
+                      <span>Complete Registration</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* 3. MANDATORY PASSWORD CHANGE FORM */}
+            {mode === 'change_password' && (
+              <form onSubmit={handleChangePassword} className="space-y-3.5 text-xs font-semibold">
+                <input
+                  type="password"
+                  required
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Current Temporary Password"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                />
+
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    required
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="New Secure Password (min. 6 chars)"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <input
+                  type="password"
+                  required
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  placeholder="Confirm New Password"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                />
+
                 <button
                   type="submit"
-                  disabled={loading || googleLoading}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                  disabled={loading}
+                  className="w-full py-3 bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer text-xs"
                 >
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Creating Student Account...</span>
+                      <span>Updating Password...</span>
                     </>
                   ) : (
-                    <>
-                      <span>Complete Registration</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
+                    <span>Set Password & Open Dashboard</span>
                   )}
                 </button>
-              </div>
-            </form>
+              </form>
+            )}
           </div>
-        )}
 
-        {/* ======================================================== */}
-        {/* VIEW 3: MANDATORY PASSWORD CHANGE FORM */}
-        {/* ======================================================== */}
-        {mode === 'change_password' && (
-          <form onSubmit={handleChangePassword} className="space-y-4 text-xs font-semibold">
-            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-start gap-2.5">
-              <KeyRound className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold">Security Notice: Password Reset Required</p>
-                <p className="text-[11px] font-normal mt-0.5 text-amber-700">
-                  You are logging in with a temporary default password. Please choose a strong, personal password to activate full dashboard access.
-                </p>
-              </div>
-            </div>
-
-            {/* Current Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Current (Temporary) Password</label>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => {
-                  setCurrentPassword(e.target.value);
-                  setSubmitError('');
-                }}
-                placeholder="Temporary password"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-
-            {/* New Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">New Secure Password</label>
-              <div className="relative">
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  required
-                  value={newPassword}
-                  onChange={(e) => {
-                    setNewPassword(e.target.value);
-                    setSubmitError('');
-                  }}
-                  placeholder="At least 6 characters"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 pr-10 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                  tabIndex={-1}
-                >
-                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Confirm New Password */}
-            <div>
-              <label className="text-slate-700 block mb-1">Confirm New Password</label>
-              <input
-                type="password"
-                required
-                value={confirmNewPassword}
-                onChange={(e) => {
-                  setConfirmNewPassword(e.target.value);
-                  setSubmitError('');
-                }}
-                placeholder="Re-enter new password"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Submit Button */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Updating Password...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Set New Password & Enter Dashboard</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Footer Security Badging */}
-        <div className="flex items-center justify-center space-x-1.5 text-[11px] text-slate-400 font-medium pt-2 border-t border-slate-100">
-          <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Google OAuth • Institutional Role Guarded • JWT Verified</span>
+          {/* Footer Copyright */}
+          <div className="text-center text-[11px] text-slate-400 pt-4 border-t border-slate-100">
+            © {new Date().getFullYear()} ProjectMentor Platform • College Project Monitoring
+          </div>
         </div>
       </div>
 
       {/* ======================================================== */}
-      {/* GOOGLE AUTHENTICATION MODAL */}
+      {/* MODAL 1: GOOGLE ONE-CLICK PROFILE SELECTOR FALLBACK      */}
       {/* ======================================================== */}
       {showGoogleModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <GoogleIcon className="w-5 h-5" />
-                <span className="font-bold text-sm text-slate-800">Sign in with Google</span>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-slate-200 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <GoogleIcon className="w-5 h-5 shrink-0" />
+                <h3 className="text-sm font-black text-slate-900">Sign in with Google</h3>
               </div>
               <button
-                type="button"
                 onClick={() => setShowGoogleModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500">
+                Choose a pre-configured Google profile or enter your custom Google account:
+              </p>
+
+              <div className="space-y-1.5 pt-1">
+                {[
+                  { name: 'Dr. Vetri Chelvan', email: 'vetri@gmail.com', role: 'mentor' },
+                  { name: 'Vijay Ananth R S', email: 'vijay@gmail.com', role: 'student' },
+                  { name: 'Administrator', email: 'admin@gmail.com', role: 'admin' }
+                ].map((account) => (
+                  <button
+                    key={account.email}
+                    onClick={() =>
+                      executeGoogleAuth({
+                        email: account.email,
+                        name: account.name,
+                        role: account.role,
+                        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`
+                      })
+                    }
+                    className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 flex items-center justify-between text-left transition-all cursor-pointer"
+                  >
+                    <div>
+                      <div className="text-xs font-bold text-slate-800">{account.name}</div>
+                      <div className="text-[11px] text-slate-400">{account.email}</div>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                      {account.role}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <span className="text-[11px] font-bold text-slate-500 block">Or Custom Google Account:</span>
+              <input
+                type="email"
+                value={customGoogleEmail}
+                onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                placeholder="yourname@gmail.com"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (customGoogleEmail) {
+                    executeGoogleAuth({
+                      email: customGoogleEmail,
+                      name: customGoogleName || customGoogleEmail.split('@')[0],
+                      role: 'student'
+                    });
+                  }
+                }}
+                disabled={!customGoogleEmail}
+                className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                Sign in with this account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 2: FORGOT PASSWORD GUIDANCE MODAL                  */}
+      {/* ======================================================== */}
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-slate-200 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-indigo-600 shrink-0" />
+                <h3 className="text-sm font-black text-slate-900">Password Recovery</h3>
+              </div>
+              <button
+                onClick={() => setShowForgotModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Choose a Google account or enter your personal Gmail address:
+              For security compliance in college project governance, passwords are encrypted via salted hashes. If you have misplaced your password:
             </p>
 
-            {/* Quick Profile Choices */}
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => executeGoogleAuth({
-                  email: 'vijay@gmail.com',
-                  name: 'Vijay Ananth R S',
-                  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
-                  role: 'student'
-                })}
-                disabled={googleLoading}
-                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
-                    VA
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-800 group-hover:text-blue-700">Vijay Ananth</div>
-                    <div className="text-[11px] text-slate-400">vijay@gmail.com</div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                  Student
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => executeGoogleAuth({
-                  email: 'vetri@gmail.com',
-                  name: 'Dr. Vetri Chelvan',
-                  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-                  role: 'mentor'
-                })}
-                disabled={googleLoading}
-                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0">
-                    VC
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Dr. Vetri Chelvan</div>
-                    <div className="text-[11px] text-slate-400">vetri@gmail.com</div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                  Mentor
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => executeGoogleAuth({
-                  email: 'admin@gmail.com',
-                  name: 'Administrator',
-                  avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
-                  role: 'admin'
-                })}
-                disabled={googleLoading}
-                className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-purple-400 hover:bg-purple-50/50 flex items-center justify-between text-left transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 font-bold text-xs flex items-center justify-center shrink-0">
-                    AD
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-800 group-hover:text-purple-700">Administrator</div>
-                    <div className="text-[11px] text-slate-400">admin@gmail.com</div>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-                  Admin
-                </span>
-              </button>
-            </div>
-
-            {/* Custom Google Email Input */}
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <label className="text-[11px] font-semibold text-slate-600 block">
-                Or enter any Google Account email:
-              </label>
-              <div className="space-y-2">
-                <input
-                  type="email"
-                  value={customGoogleEmail}
-                  onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                  placeholder="e.g. yourname@gmail.com"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-                <input
-                  type="text"
-                  value={customGoogleName}
-                  onChange={(e) => setCustomGoogleName(e.target.value)}
-                  placeholder="Your Full Name (optional)"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-                <button
-                  type="button"
-                  disabled={!customGoogleEmail.trim() || googleLoading}
-                  onClick={() => executeGoogleAuth({
-                    email: customGoogleEmail.trim(),
-                    name: customGoogleName.trim() || undefined,
-                    role: mode === 'register' ? 'student' : undefined
-                  })}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  {googleLoading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Authenticating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <GoogleIcon className="w-3.5 h-3.5" />
-                      <span>Continue with this Account</span>
-                    </>
-                  )}
-                </button>
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 text-xs space-y-2 text-slate-700">
+              <div>
+                <strong className="block text-slate-900 font-bold mb-0.5">Students:</strong>
+                Contact your Department Project Coordinator or College Administrator (<span className="text-indigo-600 font-semibold">admin@gmail.com</span>) to reset your temporary access key.
+              </div>
+              <div>
+                <strong className="block text-slate-900 font-bold mb-0.5">Faculty Mentors:</strong>
+                Admins can re-issue credentials from the Admin Mentor Directory.
               </div>
             </div>
 
-            <div className="pt-1 text-center">
-              <button
-                type="button"
-                onClick={() => setShowGoogleModal(false)}
-                className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowForgotModal(false)}
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+            >
+              Understood
+            </button>
           </div>
         </div>
       )}
