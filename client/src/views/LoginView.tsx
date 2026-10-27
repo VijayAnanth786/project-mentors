@@ -11,8 +11,7 @@ import {
   Mail,
   User as UserIcon,
   Sparkles,
-  KeyRound,
-  ArrowLeft
+  KeyRound
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../api/client';
@@ -383,17 +382,8 @@ export const LoginView: React.FC = () => {
         {/* RIGHT PANEL: CLEAN WHITE AUTHENTICATION DESK             */}
         {/* ======================================================== */}
         <div className="p-8 sm:p-12 lg:p-14 flex flex-col justify-between bg-white">
-          {/* Top Bar: Back Link + Mode Switcher */}
-          <div className="flex items-center justify-between text-xs pb-4 border-b border-slate-100">
-            <button
-              type="button"
-              onClick={() => setActiveView('home')}
-              className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold transition-colors cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to home</span>
-            </button>
-
+          {/* Top Bar: Mode Switcher */}
+          <div className="flex items-center justify-end text-xs pb-4 border-b border-slate-100 min-h-[42px]">
             {mode !== 'change_password' && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-400">
