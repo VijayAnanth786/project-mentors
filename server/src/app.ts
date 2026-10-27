@@ -63,13 +63,16 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 let dbInitPromise: Promise<void> | null = null;
 
 export const ensureDB = async (): Promise<void> => {
+  if (mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
+    try {
+      await connectDB();
+    } catch (err) {
+      console.warn('[DB Connection Warning]', err);
+    }
+  }
+
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
-      try {
-        await connectDB();
-      } catch (err) {
-        console.warn('[DB Connection Warning]', err);
-      }
       try {
         initSchema();
         await runSeed(false);

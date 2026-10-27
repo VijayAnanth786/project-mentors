@@ -46,6 +46,10 @@ const startAtlasBackgroundRetry = (mongoUri: string) => {
 };
 
 export const connectDB = async (): Promise<void> => {
+  if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
+    return;
+  }
+
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
   if (!mongoUri || mongoUri.includes('<username>') || mongoUri.includes('<password>')) {
@@ -55,7 +59,7 @@ export const connectDB = async (): Promise<void> => {
   }
 
   try {
-    const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 3000, dbName: 'pulse_app' });
+    const conn = await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 8000, dbName: 'pulse_app' });
     lastMongoError = null;
     console.log(`🚀 MongoDB Connected: ${conn.connection.host}`);
   } catch (error: any) {
