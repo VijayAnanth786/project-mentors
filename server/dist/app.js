@@ -8,6 +8,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const path_1 = __importDefault(require("path"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const mongoose_1 = __importDefault(require("mongoose"));
 const db_1 = require("./config/db");
 const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
 const mentorRoutes_1 = __importDefault(require("./routes/mentorRoutes"));
@@ -60,14 +61,16 @@ app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
 // 5. Database Initialization Management
 let dbInitPromise = null;
 const ensureDB = async () => {
+    if (mongoose_1.default.connection.readyState !== 1 && mongoose_1.default.connection.readyState !== 2) {
+        try {
+            await (0, db_1.connectDB)();
+        }
+        catch (err) {
+            console.warn('[DB Connection Warning]', err);
+        }
+    }
     if (!dbInitPromise) {
         dbInitPromise = (async () => {
-            try {
-                await (0, db_1.connectDB)();
-            }
-            catch (err) {
-                console.warn('[DB Connection Warning]', err);
-            }
             try {
                 (0, database_1.initSchema)();
                 await (0, seed_1.runSeed)(false);
