@@ -371,7 +371,7 @@ export const changePassword = async (req: AuthenticatedRequest, res: Response): 
 
 export const googleAuth = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { credential, email, name, avatar, role } = req.body;
+    const { credential, accessToken, email, name, avatar, role } = req.body;
 
     let googleEmail = email;
     let googleName = name;
@@ -383,7 +383,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
         if (verifyRes.ok) {
           const payload = await verifyRes.json() as any;
-          googleEmail = payload.email;
+          googleEmail = payload.email || googleEmail;
           googleName = payload.name || payload.given_name || googleName;
           googleAvatar = payload.picture || googleAvatar;
         } else {
@@ -400,6 +400,23 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         }
       } catch (tokenErr) {
         console.warn('[Google Token Verification Notice]', tokenErr);
+      }
+    }
+
+    // 2. If Google OAuth 2.0 access token is provided, verify via Google UserInfo API
+    if (accessToken && typeof accessToken === 'string') {
+      try {
+        const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (userinfoRes.ok) {
+          const info = await userinfoRes.json() as any;
+          googleEmail = info.email || googleEmail;
+          googleName = info.name || info.given_name || googleName;
+          googleAvatar = info.picture || googleAvatar;
+        }
+      } catch (userinfoErr) {
+        console.warn('[Google OAuth 2.0 UserInfo Notice]', userinfoErr);
       }
     }
 

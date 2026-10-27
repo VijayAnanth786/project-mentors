@@ -56,7 +56,7 @@ export const api = {
       const res = await apiClient.post('/auth/login', credentials);
       return res.data;
     },
-    googleLogin: async (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
+    googleLogin: async (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
       const res = await apiClient.post('/auth/google', data);
       return res.data;
     },

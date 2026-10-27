@@ -20,7 +20,7 @@ interface AppContextType {
     user?: User;
     token?: string;
   }>;
-  googleLogin: (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => Promise<{
+  googleLogin: (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => Promise<{
     success: boolean;
     message?: string;
   }>;
@@ -214,7 +214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const googleLogin = async (data: { credential?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
+  const googleLogin = async (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
     try {
       const res = await api.auth.googleLogin(data);
       if (!res.success) {

@@ -132,10 +132,47 @@ export const LoginView: React.FC = () => {
     };
   }, [googleLogin]);
 
-  // Handle Google Sign In Click
+  // Handle Google Sign In Click with OAuth 2.0
   const handleGoogleSignInClick = () => {
     setSubmitError('');
 
+    // 1. Try Google Identity Services OAuth 2.0 Token Client (Popup flow)
+    if (window.google?.accounts?.oauth2) {
+      try {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'email profile openid',
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse?.error) {
+              console.warn('[Google OAuth Error]', tokenResponse);
+              if (tokenResponse.error !== 'access_denied') {
+                setShowGoogleModal(true);
+              }
+              return;
+            }
+            if (tokenResponse?.access_token) {
+              setGoogleLoading(true);
+              setSubmitError('');
+              const res = await googleLogin({ accessToken: tokenResponse.access_token });
+              setGoogleLoading(false);
+              if (!res.success) {
+                setSubmitError(res.message || 'Google authentication failed.');
+              }
+            }
+          },
+          error_callback: (err: any) => {
+            console.warn('[Google OAuth error_callback]', err);
+            setShowGoogleModal(true);
+          }
+        });
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
+        return;
+      } catch (oauthErr) {
+        console.warn('[Google initTokenClient failed, falling back to OneTap/modal]', oauthErr);
+      }
+    }
+
+    // 2. Fallback to Google One Tap / ID Token Prompt
     if (window.google?.accounts?.id) {
       try {
         window.google.accounts.id.prompt((notification: any) => {
