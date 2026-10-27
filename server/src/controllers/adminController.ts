@@ -617,190 +617,214 @@ export const getAdminTeams = async (req: AuthenticatedRequest, res: Response): P
 
 export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
-    const { mentorId } = req.body;
+    const rawId = req.params.id;
+    const teamParam = decodeURIComponent(String(rawId || '').trim());
+    const rawMentorId = req.body?.mentorId;
+    const isUnassign = !rawMentorId || rawMentorId === 'unassigned' || rawMentorId === 'none' || String(rawMentorId).trim() === '';
+    const cleanMentorId = isUnassign ? null : String(rawMentorId).trim();
     const adminId = req.user?.id || 'usr_admin_1';
     const isMongoReady = mongoose.connection.readyState === 1;
 
-    let mentorName = 'None';
-    let targetMentorDoc: any = null;
+    // 1. Resolve Team across SQLite & MongoDB
+    let sqlTeam: any = null;
+    try {
+      sqlTeam = db.prepare('SELECT id, name, mentor_id, year_cohort, department FROM teams WHERE id = ? OR name = ?').get(teamParam, teamParam) as any;
+    } catch {}
 
-    // 1. If a mentorId is provided, resolve and validate the mentor
-    if (mentorId) {
-      const cleanMentorId = String(mentorId).trim();
-      // Try MongoDB
-      if (isMongoReady) {
-        try {
-          if (mongoose.Types.ObjectId.isValid(cleanMentorId)) {
-            targetMentorDoc = await User.findById(cleanMentorId);
-          }
-          if (!targetMentorDoc) {
-            targetMentorDoc = await User.findOne({
-              $or: [
-                { _id: mongoose.Types.ObjectId.isValid(cleanMentorId) ? new mongoose.Types.ObjectId(cleanMentorId) : null },
-                { email: cleanMentorId.toLowerCase() }
-              ]
-            });
-          }
-        } catch {}
-      }
-
-      // Try SQLite
-      if (!targetMentorDoc) {
-        try {
-          targetMentorDoc = db.prepare('SELECT id, name, status, role, email FROM users WHERE id = ? OR email = ? COLLATE NOCASE').get(cleanMentorId, cleanMentorId) as any;
-        } catch {}
-      }
-
-      if (!targetMentorDoc) {
-        res.status(400).json({ success: false, message: 'Selected mentor not found.' });
-        return;
-      }
-
-      const roleStr = String(targetMentorDoc.role || '').toLowerCase();
-      const statusStr = String(targetMentorDoc.status || '').toLowerCase();
-
-      if (roleStr !== 'mentor') {
-        res.status(400).json({ success: false, message: 'Selected user is not a faculty mentor.' });
-        return;
-      }
-      if (statusStr === 'inactive' || statusStr === 'blocked') {
-        res.status(400).json({ success: false, message: 'Cannot assign an inactive mentor.' });
-        return;
-      }
-
-      mentorName = targetMentorDoc.name;
-    }
-
-    let teamFound = false;
-    let teamName = 'Team';
-    let mongoUpdatedTeam: any = null;
-
-    // 2. Update in MongoDB Atlas if connected
+    let mTeam: any = null;
     if (isMongoReady) {
       try {
-        let mTeam = null;
-        if (mongoose.Types.ObjectId.isValid(id)) {
-          mTeam = await Team.findById(id);
+        if (mongoose.Types.ObjectId.isValid(teamParam)) {
+          mTeam = await Team.findById(teamParam);
         }
         if (!mTeam) {
-          mTeam = await Team.findOne({
+          mTeam = await Team.findOne({ name: teamParam });
+        }
+        if (!mTeam && sqlTeam?.name) {
+          mTeam = await Team.findOne({ name: sqlTeam.name });
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB team lookup notice]', mErr);
+      }
+    }
+
+    if (!sqlTeam && mTeam?.name) {
+      try {
+        sqlTeam = db.prepare('SELECT id, name, mentor_id, year_cohort, department FROM teams WHERE name = ?').get(mTeam.name) as any;
+      } catch {}
+    }
+
+    if (!sqlTeam && !mTeam) {
+      res.status(404).json({ success: false, message: 'Team not found in database.' });
+      return;
+    }
+
+    const teamName = mTeam?.name || sqlTeam?.name || 'Team';
+
+    // 2. Handle Unassign
+    if (isUnassign) {
+      if (mTeam) {
+        mTeam.mentorId = null;
+        await mTeam.save();
+      }
+      if (sqlTeam) {
+        db.prepare('UPDATE teams SET mentor_id = NULL WHERE id = ?').run(sqlTeam.id);
+      }
+
+      const now = new Date().toISOString();
+      try {
+        db.prepare(`
+          INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
+          VALUES (?, ?, 'MENTOR_UNASSIGNED', ?, 'team', ?, ?)
+        `).run(`act_${Date.now()}`, adminId, `Admin removed mentor assignment from team "${teamName}"`, sqlTeam?.id || mTeam?._id.toString(), now);
+      } catch {}
+
+      res.json({
+        success: true,
+        message: `Mentor unassigned from team "${teamName}" successfully.`
+      });
+      return;
+    }
+
+    // 3. Resolve & Validate Mentor
+    let mongoMentorDoc: any = null;
+    let sqlMentorDoc: any = null;
+
+    if (isMongoReady && cleanMentorId) {
+      try {
+        if (mongoose.Types.ObjectId.isValid(cleanMentorId)) {
+          mongoMentorDoc = await User.findById(cleanMentorId);
+        }
+        if (!mongoMentorDoc) {
+          mongoMentorDoc = await User.findOne({
             $or: [
-              { _id: mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null },
-              { name: id }
+              { email: cleanMentorId.toLowerCase() },
+              { name: cleanMentorId }
             ]
           });
         }
-
-        if (mTeam) {
-          teamFound = true;
-          teamName = mTeam.name;
-          mongoUpdatedTeam = mTeam;
-
-          let finalMongoMentorId: any = null;
-          if (mentorId && targetMentorDoc) {
-            if (targetMentorDoc._id) {
-              finalMongoMentorId = targetMentorDoc._id;
-            } else if (targetMentorDoc.email) {
-              const mUser = await User.findOne({ email: targetMentorDoc.email.toLowerCase() });
-              if (mUser) {
-                finalMongoMentorId = mUser._id;
-              }
-            }
-            if (!finalMongoMentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
-              finalMongoMentorId = new mongoose.Types.ObjectId(mentorId);
-            }
-          }
-
-          mTeam.mentorId = finalMongoMentorId;
-          await mTeam.save();
-        }
-      } catch (mErr) {
-        console.warn('[MongoDB assignTeamMentor error]', mErr);
+      } catch (err) {
+        console.warn('[MongoDB mentor lookup notice]', err);
       }
     }
 
-    // 3. Update in SQLite
-    try {
-      let sqlTeam = db.prepare('SELECT id, name, mentor_id FROM teams WHERE id = ? OR name = ?').get(id, id) as any;
-
-      if (!sqlTeam && mongoUpdatedTeam) {
-        // Sync SQLite with MongoDB team
-        const leaderIdStr = mongoUpdatedTeam.leaderId ? mongoUpdatedTeam.leaderId.toString() : 'usr_leader_stub';
-        try {
-          db.prepare(`
-            INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
-            VALUES (?, 'Team Leader', 'leader@university.edu', 'managed_auth', 'student', 'active', '')
-          `).run(leaderIdStr);
-        } catch {}
-
-        try {
-          db.prepare(`
-            INSERT OR IGNORE INTO teams (id, name, leader_id, mentor_id, year_cohort, department, status)
-            VALUES (?, ?, ?, NULL, ?, ?, 'active')
-          `).run(mongoUpdatedTeam._id.toString(), mongoUpdatedTeam.name, leaderIdStr, mongoUpdatedTeam.yearCohort || '3rd Year', mongoUpdatedTeam.department || 'Computer Science');
-        } catch {}
-
-        sqlTeam = db.prepare('SELECT id, name, mentor_id FROM teams WHERE id = ?').get(mongoUpdatedTeam._id.toString()) as any;
-      }
-
-      if (sqlTeam) {
-        teamFound = true;
-        teamName = sqlTeam.name;
-
-        // Ensure the mentor exists in SQLite so foreign key won't fail
-        let finalSqlMentorId = null;
-        if (mentorId) {
-          const mentorEmailTarget = (targetMentorDoc?.email || '').trim().toLowerCase();
-          const sqlMentor = db.prepare('SELECT id FROM users WHERE id = ? OR (email = ? AND ? != "") COLLATE NOCASE').get(mentorId, mentorEmailTarget, mentorEmailTarget) as any;
-          if (sqlMentor) {
-            finalSqlMentorId = sqlMentor.id;
-          } else {
-            finalSqlMentorId = targetMentorDoc?._id ? targetMentorDoc._id.toString() : String(mentorId);
-            try {
-              db.prepare(`
-                INSERT OR REPLACE INTO users (id, name, email, password_hash, role, status, avatar)
-                VALUES (?, ?, ?, 'managed_auth', 'mentor', 'active', ?)
-              `).run(finalSqlMentorId, targetMentorDoc?.name || mentorName, mentorEmailTarget || `${finalSqlMentorId}@university.edu`, targetMentorDoc?.avatar || '');
-            } catch {}
-          }
-        }
-
-        db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ?').run(finalSqlMentorId, sqlTeam.id);
-
-        const now = new Date().toISOString();
-        const actDesc = mentorId
-          ? `Admin assigned mentor ${mentorName} to team "${teamName}"`
-          : `Admin removed mentor assignment from team "${teamName}"`;
-
-        try {
-          db.prepare(`
-            INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
-            VALUES (?, ?, 'MENTOR_ASSIGNED', ?, 'team', ?, ?)
-          `).run(`act_${Date.now()}`, adminId, actDesc, sqlTeam.id, now);
-        } catch {}
-
-        if (finalSqlMentorId) {
-          try {
-            db.prepare(`
-              INSERT INTO notifications (id, user_id, title, message, type, is_read, link, created_at)
-              VALUES (?, ?, 'New Team Assigned', ?, 'team', 0, '/mentor/teams', ?)
-            `).run(`notif_${Date.now()}`, finalSqlMentorId, `You have been assigned as mentor for "${teamName}".`, now);
-          } catch {}
-        }
-      }
-    } catch (sqlErr) {
-      console.warn('[SQLite assignTeamMentor error]', sqlErr);
+    if (cleanMentorId) {
+      try {
+        sqlMentorDoc = db.prepare('SELECT id, name, email, role, status, avatar FROM users WHERE id = ? OR email = ? COLLATE NOCASE').get(cleanMentorId, cleanMentorId) as any;
+      } catch {}
     }
 
-    if (!teamFound) {
-      res.status(404).json({ success: false, message: 'Team not found.' });
+    // Cross-bridge: If mentor found in SQLite, ensure Mongo has it
+    if (sqlMentorDoc && isMongoReady && !mongoMentorDoc && sqlMentorDoc.email) {
+      try {
+        mongoMentorDoc = await User.findOne({ email: sqlMentorDoc.email.toLowerCase() });
+        if (!mongoMentorDoc) {
+          mongoMentorDoc = await User.create({
+            name: sqlMentorDoc.name,
+            email: sqlMentorDoc.email.toLowerCase(),
+            passwordHash: 'oauth_managed',
+            role: 'MENTOR',
+            status: 'ACTIVE',
+            department: 'Computer Science',
+            avatar: sqlMentorDoc.avatar || ''
+          });
+        }
+      } catch {}
+    }
+
+    // Cross-bridge: If mentor found in Mongo, ensure SQLite has it
+    if (mongoMentorDoc && !sqlMentorDoc) {
+      const sqlId = mongoMentorDoc._id.toString();
+      const mEmail = (mongoMentorDoc.email || `${sqlId}@university.edu`).toLowerCase();
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO users (id, name, email, password_hash, role, status, avatar)
+          VALUES (?, ?, ?, 'managed_auth', 'mentor', 'active', ?)
+        `).run(sqlId, mongoMentorDoc.name, mEmail, mongoMentorDoc.avatar || '');
+        sqlMentorDoc = { id: sqlId, name: mongoMentorDoc.name, email: mEmail, role: 'mentor', status: 'active' };
+      } catch {}
+    }
+
+    const mentorName = mongoMentorDoc?.name || sqlMentorDoc?.name;
+    const roleStr = String(mongoMentorDoc?.role || sqlMentorDoc?.role || '').toLowerCase();
+    const statusStr = String(mongoMentorDoc?.status || sqlMentorDoc?.status || '').toLowerCase();
+
+    if (!mentorName) {
+      res.status(400).json({ success: false, message: 'Selected faculty mentor not found.' });
       return;
+    }
+
+    if (roleStr !== 'mentor') {
+      res.status(400).json({ success: false, message: 'Selected user is not a faculty mentor.' });
+      return;
+    }
+    if (statusStr === 'inactive' || statusStr === 'blocked') {
+      res.status(400).json({ success: false, message: 'Cannot assign an inactive mentor.' });
+      return;
+    }
+
+    // 4. Update MongoDB Team
+    if (mTeam && mongoMentorDoc) {
+      mTeam.mentorId = mongoMentorDoc._id;
+      await mTeam.save();
+    } else if (isMongoReady && !mTeam && sqlTeam && mongoMentorDoc) {
+      try {
+        let defaultLeader = await User.findOne({ role: 'STUDENT' }) || await User.findOne();
+        mTeam = await Team.create({
+          name: sqlTeam.name,
+          yearCohort: sqlTeam.year_cohort || '3rd Year',
+          leaderId: defaultLeader ? defaultLeader._id : new mongoose.Types.ObjectId(),
+          memberIds: defaultLeader ? [defaultLeader._id] : [],
+          mentorId: mongoMentorDoc._id,
+          department: sqlTeam.department || 'Computer Science'
+        });
+      } catch (err) {
+        console.warn('[MongoDB team create on assign notice]', err);
+      }
+    }
+
+    // 5. Update SQLite Team
+    if (sqlTeam && sqlMentorDoc) {
+      db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ?').run(sqlMentorDoc.id, sqlTeam.id);
+    } else if (mTeam && !sqlTeam && sqlMentorDoc) {
+      const leaderIdStr = mTeam.leaderId ? mTeam.leaderId.toString() : `ldr_${Date.now()}`;
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+          VALUES (?, 'Team Leader', ?, 'managed_auth', 'student', 'active', '')
+        `).run(leaderIdStr, `leader_${leaderIdStr}@university.edu`);
+      } catch {}
+
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO teams (id, name, leader_id, mentor_id, year_cohort, department, status)
+          VALUES (?, ?, ?, ?, ?, ?, 'active')
+        `).run(mTeam._id.toString(), mTeam.name, leaderIdStr, sqlMentorDoc.id, mTeam.yearCohort || '3rd Year', mTeam.department || 'Computer Science');
+        sqlTeam = { id: mTeam._id.toString(), name: mTeam.name };
+      } catch {}
+    }
+
+    // 6. Notifications & Activity Logging
+    const now = new Date().toISOString();
+    try {
+      db.prepare(`
+        INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
+        VALUES (?, ?, 'MENTOR_ASSIGNED', ?, 'team', ?, ?)
+      `).run(`act_${Date.now()}`, adminId, `Admin assigned mentor ${mentorName} to team "${teamName}"`, sqlTeam?.id || mTeam?._id.toString(), now);
+    } catch {}
+
+    if (sqlMentorDoc?.id) {
+      try {
+        db.prepare(`
+          INSERT INTO notifications (id, user_id, title, message, type, is_read, link, created_at)
+          VALUES (?, ?, 'New Team Assigned', ?, 'team', 0, '/mentor/teams', ?)
+        `).run(`notif_${Date.now()}`, sqlMentorDoc.id, `You have been assigned as mentor for "${teamName}".`, now);
+      } catch {}
     }
 
     res.json({
       success: true,
-      message: mentorId ? `Mentor ${mentorName} assigned to team "${teamName}" successfully.` : `Mentor unassigned from team "${teamName}".`
+      message: `Mentor ${mentorName} assigned to team "${teamName}" successfully.`
     });
   } catch (error: any) {
     console.error('[Assign Mentor Error]', error);

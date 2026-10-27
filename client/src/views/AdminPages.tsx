@@ -609,18 +609,20 @@ export const AdminAssignMentorsView: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [reassignConfirm, setReassignConfirm] = useState<{ open: boolean; team: any; newMentorId: string } | null>(null);
 
-  const { data: teamsRes, refetch: refetchTeams } = useFetch(() => api.admin.getTeams({ limit: 50 }), []);
-  const { data: mentors, refetch: refetchMentors } = useFetch(() => api.admin.getMentors(), []);
+  const { data: teamsRes, loading: loadingTeams, refetch: refetchTeams } = useFetch(() => api.admin.getTeams({ limit: 100 }), []);
+  const { data: mentors, loading: loadingMentors, refetch: refetchMentors } = useFetch(() => api.admin.getMentors(), []);
 
-  const teams = teamsRes?.data || [];
-  const activeMentors = (mentors || []).filter((m: any) => m.status === 'active');
+  const teams = Array.isArray(teamsRes) ? teamsRes : (teamsRes?.data || []);
+  const activeMentors = (mentors || []).filter((m: any) => !m.status || String(m.status).toLowerCase() === 'active');
+  const selectedTeam = teams.find((t: any) => t.id === selectedTeamId);
 
   const executeAssignment = async (tId: string, mId: string) => {
     setSubmitting(true);
     try {
       await api.admin.assignMentor(tId, mId || null);
-      showToast('Mentor assigned to team successfully!', 'success');
+      showToast(mId ? 'Mentor assigned to team successfully!' : 'Mentor unassigned from team.', 'success');
       setReassignConfirm(null);
+      setSelectedMentorId('');
       refetchTeams();
       refetchMentors();
     } catch (err: any) {
@@ -660,8 +662,15 @@ export const AdminAssignMentorsView: React.FC = () => {
           <FormField label="Select Student Team" required={true}>
             <select
               value={selectedTeamId}
-              onChange={(e) => setSelectedTeamId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800"
+              onChange={(e) => {
+                const nextId = e.target.value;
+                setSelectedTeamId(nextId);
+                const t = teams.find((item: any) => item.id === nextId);
+                if (t?.mentor_id) {
+                  setSelectedMentorId(t.mentor_id);
+                }
+              }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
               <option value="">-- Choose a team to allocate --</option>
               {teams.map((t: any) => (
@@ -672,30 +681,41 @@ export const AdminAssignMentorsView: React.FC = () => {
             </select>
           </FormField>
 
-          <FormField label="Select Active Mentor (Shows Current Workload)" required={true}>
+          <FormField label="Select Active Faculty Mentor (Shows Current Workload)" required={true}>
             <select
               value={selectedMentorId}
               onChange={(e) => setSelectedMentorId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
               <option value="">-- Choose faculty mentor --</option>
               {activeMentors.map((m: any) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} — {m.team_count || 0} teams assigned ({m.department})
+                  {m.name} — {m.team_count || 0} teams assigned ({m.department || 'Faculty'})
                 </option>
               ))}
             </select>
           </FormField>
 
-          <div className="pt-2">
+          <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
             <button
               type="submit"
-              disabled={submitting}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              disabled={submitting || !selectedTeamId || !selectedMentorId}
+              className="flex-1 w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
               <span>Confirm & Allocate Mentor</span>
             </button>
+
+            {selectedTeam?.mentor_name && (
+              <button
+                type="button"
+                onClick={() => executeAssignment(selectedTeamId, '')}
+                disabled={submitting}
+                className="w-full sm:w-auto py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl border border-rose-200 transition-colors cursor-pointer"
+              >
+                Remove Mentor
+              </button>
+            )}
           </div>
         </form>
       </div>

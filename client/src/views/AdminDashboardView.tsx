@@ -621,12 +621,20 @@ export const AdminDashboardView: React.FC = () => {
           <FormField label="Select Team" required={true}>
             <select
               value={targetTeamId}
-              onChange={(e) => setTargetTeamId(e.target.value)}
+              onChange={(e) => {
+                const nId = e.target.value;
+                setTargetTeamId(nId);
+                const t = teams?.find((item: any) => item.id === nId);
+                if (t?.mentor_id) {
+                  setTargetMentorId(t.mentor_id);
+                }
+              }}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
+              <option value="">-- Choose student team --</option>
               {teams?.map((t: any) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} {t.mentor_name ? `(Current: ${t.mentor_name})` : '(No Mentor)'}
+                  {t.name} {t.mentor_name ? `(Current: ${t.mentor_name})` : '(UNASSIGNED)'}
                 </option>
               ))}
             </select>
@@ -638,35 +646,48 @@ export const AdminDashboardView: React.FC = () => {
               onChange={(e) => setTargetMentorId(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             >
+              <option value="">-- Choose faculty mentor --</option>
               {mentorsList
-                ?.filter((m: any) => m.status === 'active')
+                ?.filter((m: any) => !m.status || String(m.status).toLowerCase() === 'active')
                 .map((m: any) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} — {m.team_count || 0} teams assigned ({m.department})
+                    {m.name} — {m.team_count || 0} teams assigned ({m.department || 'Faculty'})
                   </option>
                 ))}
             </select>
           </FormField>
 
-          <div className="flex justify-end gap-3 pt-3">
-            <button
-              type="button"
-              onClick={() => {
-                setIsAssignModalOpen(false);
-                setAssignModalTeam(null);
-              }}
-              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={assignSubmitting || !targetTeamId || !targetMentorId}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-xs cursor-pointer"
-            >
-              {assignSubmitting ? 'Saving...' : 'Assign Mentor'}
-            </button>
+          <div className="flex justify-between items-center gap-3 pt-3">
+            {targetTeamId && teams?.find((t: any) => t.id === targetTeamId)?.mentor_name ? (
+              <button
+                type="button"
+                onClick={() => executeAssignMentor(targetTeamId, '')}
+                disabled={assignSubmitting}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl font-bold border border-rose-200 text-xs cursor-pointer"
+              >
+                Remove Mentor
+              </button>
+            ) : <div />}
 
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAssignModalOpen(false);
+                  setAssignModalTeam(null);
+                }}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={assignSubmitting || !targetTeamId || !targetMentorId}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+              >
+                {assignSubmitting ? 'Saving...' : 'Assign Mentor'}
+              </button>
+            </div>
           </div>
         </form>
       </Modal>
