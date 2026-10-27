@@ -62,11 +62,6 @@ export const LoginView: React.FC = () => {
   // Forgot password modal
   const [showForgotModal, setShowForgotModal] = useState(false);
 
-  // Google Modal state for flexible sign in
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
-  const [customGoogleName, setCustomGoogleName] = useState('');
-
   // Student Registration state
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
@@ -88,6 +83,34 @@ export const LoginView: React.FC = () => {
   const GOOGLE_CLIENT_ID =
     import.meta.env.VITE_GOOGLE_CLIENT_ID ||
     '910163127647-sb8vtk7ups5nma63orcndkrj5a2chbj4.apps.googleusercontent.com';
+
+  // Google OAuth 2.0 response handler from full-page redirect or hash
+  useEffect(() => {
+    if (window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const idToken = hashParams.get('id_token');
+      const error = hashParams.get('error');
+
+      if (error) {
+        setSubmitError(`Google Sign-In error: ${error}`);
+        window.history.replaceState(null, '', window.location.pathname);
+        return;
+      }
+
+      if (accessToken || idToken) {
+        setGoogleLoading(true);
+        setSubmitError('');
+        window.history.replaceState(null, '', window.location.pathname);
+        googleLogin({ accessToken: accessToken || undefined, credential: idToken || undefined }).then((res) => {
+          setGoogleLoading(false);
+          if (!res.success) {
+            setSubmitError(res.message || 'Google authentication failed.');
+          }
+        });
+      }
+    }
+  }, [googleLogin]);
 
   // Initialize native Google Identity Services
   useEffect(() => {
@@ -130,11 +153,25 @@ export const LoginView: React.FC = () => {
     return () => {
       if (checkInterval) clearInterval(checkInterval);
     };
-  }, [googleLogin]);
+  }, [googleLogin, GOOGLE_CLIENT_ID]);
 
-  // Handle Google Sign In Click with OAuth 2.0
+  // Redirect to official Google OAuth 2.0 endpoint
+  const redirectToGoogleOAuth = () => {
+    const redirectUri = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'token',
+      scope: 'email profile openid',
+      prompt: 'select_account'
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  };
+
+  // Pure Google OAuth 2.0 Sign In Trigger
   const handleGoogleSignInClick = () => {
     setSubmitError('');
+    setGoogleLoading(true);
 
     // 1. Try Google Identity Services OAuth 2.0 Token Client (Popup flow)
     if (window.google?.accounts?.oauth2) {
@@ -144,67 +181,37 @@ export const LoginView: React.FC = () => {
           scope: 'email profile openid',
           callback: async (tokenResponse: any) => {
             if (tokenResponse?.error) {
-              console.warn('[Google OAuth Error]', tokenResponse);
+              setGoogleLoading(false);
               if (tokenResponse.error !== 'access_denied') {
-                setShowGoogleModal(true);
+                setSubmitError(tokenResponse.error_description || 'Google sign-in was cancelled or encountered an error.');
               }
               return;
             }
             if (tokenResponse?.access_token) {
-              setGoogleLoading(true);
-              setSubmitError('');
               const res = await googleLogin({ accessToken: tokenResponse.access_token });
               setGoogleLoading(false);
               if (!res.success) {
                 setSubmitError(res.message || 'Google authentication failed.');
               }
+            } else {
+              setGoogleLoading(false);
             }
           },
           error_callback: (err: any) => {
-            console.warn('[Google OAuth error_callback]', err);
-            setShowGoogleModal(true);
+            setGoogleLoading(false);
+            console.warn('[Google OAuth Error Callback]', err);
+            redirectToGoogleOAuth();
           }
         });
         tokenClient.requestAccessToken({ prompt: 'select_account' });
         return;
       } catch (oauthErr) {
-        console.warn('[Google initTokenClient failed, falling back to OneTap/modal]', oauthErr);
+        console.warn('[Google initTokenClient failed, redirecting]', oauthErr);
       }
     }
 
-    // 2. Fallback to Google One Tap / ID Token Prompt
-    if (window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.prompt((notification: any) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            setShowGoogleModal(true);
-          }
-        });
-        return;
-      } catch {
-        setShowGoogleModal(true);
-      }
-    } else {
-      setShowGoogleModal(true);
-    }
-  };
-
-  // Perform Google Auth execution with selected or custom profile
-  const executeGoogleAuth = async (profile: { email: string; name?: string; avatar?: string; role?: string }) => {
-    setSubmitError('');
-    setGoogleLoading(true);
-    try {
-      const res = await googleLogin(profile);
-      if (!res.success) {
-        setSubmitError(res.message || 'Google sign-in failed.');
-      } else {
-        setShowGoogleModal(false);
-      }
-    } catch (err: any) {
-      setSubmitError(err?.message || 'Google sign-in encountered an error.');
-    } finally {
-      setGoogleLoading(false);
-    }
+    // 2. Fallback to standard Google OAuth 2.0 redirect
+    redirectToGoogleOAuth();
   };
 
   // 1. Handle Standard Email/Password Login
@@ -732,91 +739,7 @@ export const LoginView: React.FC = () => {
       </div>
 
       {/* ======================================================== */}
-      {/* MODAL 1: GOOGLE ONE-CLICK PROFILE SELECTOR FALLBACK      */}
-      {/* ======================================================== */}
-      {showGoogleModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-slate-200 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <GoogleIcon className="w-5 h-5 shrink-0" />
-                <h3 className="text-sm font-black text-slate-900">Sign in with Google</h3>
-              </div>
-              <button
-                onClick={() => setShowGoogleModal(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs text-slate-500">
-                Choose a pre-configured Google profile or enter your custom Google account:
-              </p>
-
-              <div className="space-y-1.5 pt-1">
-                {[
-                  { name: 'Dr. Vetri Chelvan', email: 'vetri@gmail.com', role: 'mentor' },
-                  { name: 'Vijay Ananth R S', email: 'vijay@gmail.com', role: 'student' },
-                  { name: 'Administrator', email: 'admin@gmail.com', role: 'admin' }
-                ].map((account) => (
-                  <button
-                    key={account.email}
-                    onClick={() =>
-                      executeGoogleAuth({
-                        email: account.email,
-                        name: account.name,
-                        role: account.role,
-                        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`
-                      })
-                    }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 flex items-center justify-between text-left transition-all cursor-pointer"
-                  >
-                    <div>
-                      <div className="text-xs font-bold text-slate-800">{account.name}</div>
-                      <div className="text-[11px] text-slate-400">{account.email}</div>
-                    </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                      {account.role}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <span className="text-[11px] font-bold text-slate-500 block">Or Custom Google Account:</span>
-              <input
-                type="email"
-                value={customGoogleEmail}
-                onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                placeholder="yourname@gmail.com"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (customGoogleEmail) {
-                    executeGoogleAuth({
-                      email: customGoogleEmail,
-                      name: customGoogleName || customGoogleEmail.split('@')[0],
-                      role: 'student'
-                    });
-                  }
-                }}
-                disabled={!customGoogleEmail}
-                className="w-full py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-              >
-                Sign in with this account
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* MODAL 2: FORGOT PASSWORD GUIDANCE MODAL                  */}
+      {/* MODAL: FORGOT PASSWORD GUIDANCE MODAL                     */}
       {/* ======================================================== */}
       {showForgotModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
