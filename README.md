@@ -522,4 +522,4 @@ No license has been specified for this project yet.
 
 Add a `LICENSE` file after deciding the intended terms for using, modifying, and distributing the project.
 
-----
+------
