@@ -321,25 +321,37 @@ export const StudentDashboardView: React.FC = () => {
               Project Work
             </button>
             <button
-              onClick={() => setActiveView('my_team')}
+              onClick={() => {
+                window.history.pushState({}, '', '/student/team');
+                setActiveView('my_team');
+              }}
               className="pb-3 px-4 hover:text-slate-800 cursor-pointer"
             >
               Team
             </button>
             <button
-              onClick={() => setActiveView('submit_progress')}
+              onClick={() => {
+                window.history.pushState({}, '', '/student/progress');
+                setActiveView('submit_progress');
+              }}
               className="pb-3 px-4 hover:text-slate-800 cursor-pointer"
             >
               Progress
             </button>
             <button
-              onClick={() => setActiveView('timeline')}
+              onClick={() => {
+                window.history.pushState({}, '', '/student/timeline');
+                setActiveView('timeline');
+              }}
               className="pb-3 px-4 hover:text-slate-800 cursor-pointer"
             >
               Timeline
             </button>
             <button
-              onClick={() => setActiveView('reviews')}
+              onClick={() => {
+                window.history.pushState({}, '', '/student/reviews');
+                setActiveView('reviews');
+              }}
               className="pb-3 px-4 hover:text-slate-800 cursor-pointer"
             >
               Reviews

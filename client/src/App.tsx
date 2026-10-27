@@ -110,7 +110,7 @@ export const App: React.FC = () => {
       case 'mentor_profile':
         return <MentorProfileView />;
 
-      // Student Views (Unchanged & fully preserved)
+      // Student Views
       case 'home':
         return <StudentDashboardView />;
       case 'my_team':
@@ -121,6 +121,10 @@ export const App: React.FC = () => {
         return <SubmitProgressView />;
       case 'analytics':
         return <ProjectAnalyticsView />;
+      case 'timeline':
+      case 'reviews':
+      case 'notifications':
+        return <ComingNextView title={activeView} />;
 
       default:
         return <ComingNextView title={activeView.replace(/[\/_]/g, ' ').trim() || 'Dashboard'} />;
