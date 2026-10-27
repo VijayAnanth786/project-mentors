@@ -135,6 +135,19 @@ export const LoginView: React.FC = () => {
             }
           }
         });
+
+        const container = document.getElementById('googleSignInContainer');
+        if (container) {
+          container.innerHTML = '';
+          window.google.accounts.id.renderButton(container, {
+            theme: 'outline',
+            size: 'large',
+            width: 340,
+            text: 'signin_with',
+            shape: 'rectangular',
+            logo_alignment: 'center'
+          });
+        }
         return true;
       } catch (err) {
         console.warn('[Google Identity Notice]', err);
@@ -147,7 +160,7 @@ export const LoginView: React.FC = () => {
         if (setupGoogleGsi()) {
           clearInterval(checkInterval);
         }
-      }, 400);
+      }, 300);
     }
 
     return () => {
@@ -155,63 +168,30 @@ export const LoginView: React.FC = () => {
     };
   }, [googleLogin, GOOGLE_CLIENT_ID]);
 
-  // Redirect to official Google OAuth 2.0 endpoint
-  const redirectToGoogleOAuth = () => {
-    const redirectUri = window.location.origin + window.location.pathname;
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: redirectUri,
-      response_type: 'token',
-      scope: 'email profile openid',
-      prompt: 'select_account'
-    });
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-  };
-
-  // Pure Google OAuth 2.0 Sign In Trigger
+  // Pure Google OAuth 2.0 Sign In Trigger (GSI popup / prompt without redirect)
   const handleGoogleSignInClick = () => {
     setSubmitError('');
-    setGoogleLoading(true);
 
-    // 1. Try Google Identity Services OAuth 2.0 Token Client (Popup flow)
-    if (window.google?.accounts?.oauth2) {
-      try {
-        const tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'email profile openid',
-          callback: async (tokenResponse: any) => {
-            if (tokenResponse?.error) {
-              setGoogleLoading(false);
-              if (tokenResponse.error !== 'access_denied') {
-                setSubmitError(tokenResponse.error_description || 'Google sign-in was cancelled or encountered an error.');
-              }
-              return;
-            }
-            if (tokenResponse?.access_token) {
-              const res = await googleLogin({ accessToken: tokenResponse.access_token });
-              setGoogleLoading(false);
-              if (!res.success) {
-                setSubmitError(res.message || 'Google authentication failed.');
-              }
-            } else {
-              setGoogleLoading(false);
-            }
-          },
-          error_callback: (err: any) => {
-            setGoogleLoading(false);
-            console.warn('[Google OAuth Error Callback]', err);
-            redirectToGoogleOAuth();
-          }
-        });
-        tokenClient.requestAccessToken({ prompt: 'select_account' });
-        return;
-      } catch (oauthErr) {
-        console.warn('[Google initTokenClient failed, redirecting]', oauthErr);
-      }
+    // 1. Try to trigger the rendered native Google button
+    const renderedButton = document.querySelector('#googleSignInContainer div[role="button"]') as HTMLElement;
+    if (renderedButton) {
+      renderedButton.click();
+      return;
     }
 
-    // 2. Fallback to standard Google OAuth 2.0 redirect
-    redirectToGoogleOAuth();
+    // 2. Try Google Identity Services One-Tap / ID token prompt
+    if (window.google?.accounts?.id) {
+      setGoogleLoading(true);
+      window.google.accounts.id.prompt((notification: any) => {
+        setGoogleLoading(false);
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          console.warn('[Google GSI Prompt]', notification);
+        }
+      });
+      return;
+    }
+
+    setSubmitError('Google Sign-In is initializing. Please wait a moment and try again.');
   };
 
   // 1. Handle Standard Email/Password Login
@@ -485,19 +465,23 @@ export const LoginView: React.FC = () => {
             {/* Google Authentication Button */}
             {mode !== 'change_password' && (
               <div className="space-y-4">
-                <button
-                  type="button"
-                  onClick={handleGoogleSignInClick}
-                  disabled={loading || googleLoading}
-                  className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 font-bold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
-                >
-                  {googleLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                  ) : (
-                    <GoogleIcon className="w-4 h-4 shrink-0" />
-                  )}
-                  <span>Login with Google</span>
-                </button>
+                <div className="flex flex-col items-center justify-center">
+                  <div id="googleSignInContainer" className="w-full flex justify-center min-h-[44px]">
+                    <button
+                      type="button"
+                      onClick={handleGoogleSignInClick}
+                      disabled={loading || googleLoading}
+                      className="w-full py-3 px-4 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-700 font-bold text-xs rounded-2xl shadow-xs flex items-center justify-center gap-3 transition-all cursor-pointer active:scale-[0.99] disabled:opacity-60"
+                    >
+                      {googleLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                      ) : (
+                        <GoogleIcon className="w-4 h-4 shrink-0" />
+                      )}
+                      <span>Login with Google</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* Divider */}
                 <div className="relative flex items-center justify-center">
