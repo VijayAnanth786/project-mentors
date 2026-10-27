@@ -8,6 +8,8 @@ import { User } from '../models/User';
 import { Team } from '../models/Team';
 import { Project } from '../models/Project';
 
+const escapeRegex = (str: string) => String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const isMongoReady = mongoose.connection.readyState === 1;
@@ -50,10 +52,51 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
       teamsWithoutMentors
     };
 
-    // 2. Teams & Project Overview (First page / top items)
+    // 2. Teams & Project Overview (Dual Database Fetch)
     let teams: any[] = [];
+    const seenNames = new Set<string>();
+
+    if (isMongoReady) {
+      try {
+        const mongoTeams = await Team.find()
+          .populate('leaderId', 'name email avatar')
+          .populate('mentorId', 'name email avatar')
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .lean();
+
+        const tIds = mongoTeams.map((t: any) => t._id);
+        const mongoProjs = await Project.find({ teamId: { $in: tIds } }).lean();
+        const pMap = new Map(mongoProjs.map((p: any) => [p.teamId.toString(), p]));
+
+        for (const t of mongoTeams) {
+          const proj = pMap.get(t._id.toString());
+          const leader = t.leaderId as any;
+          const mentor = t.mentorId as any;
+          teams.push({
+            id: t._id.toString(),
+            name: t.name,
+            team_status: 'active',
+            year_cohort: t.yearCohort || '3rd Year',
+            project_id: proj ? proj._id.toString() : null,
+            project_title: proj?.title || null,
+            project_progress: proj?.progressPercentage || 0,
+            project_status: proj?.status || 'ON_TRACK',
+            leader_name: leader?.name || 'Student Leader',
+            leader_email: leader?.email || '',
+            mentor_id: mentor ? (mentor._id ? mentor._id.toString() : String(mentor)) : null,
+            mentor_name: mentor?.name || null,
+            mentor_email: mentor?.email || null
+          });
+          seenNames.add(t.name.trim().toLowerCase());
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB getAdminDashboard teams notice]', mErr);
+      }
+    }
+
     try {
-      teams = db.prepare(`
+      const sqlTeams = db.prepare(`
         SELECT t.id, t.name, t.status as team_status, t.year_cohort,
                p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
                lu.name as leader_name, lu.email as leader_email,
@@ -65,10 +108,39 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
         ORDER BY t.created_at DESC
         LIMIT 10
       `).all() as any[];
+
+      for (const st of sqlTeams) {
+        if (!seenNames.has(st.name.trim().toLowerCase())) {
+          teams.push(st);
+          seenNames.add(st.name.trim().toLowerCase());
+        }
+      }
     } catch {}
 
     // 3. Needs Attention
     let needsAttention: any[] = [];
+    const seenNeedsAttention = new Set<string>();
+
+    if (isMongoReady) {
+      try {
+        const unassignedMongoTeams = await Team.find({
+          $or: [{ mentorId: null }, { mentorId: { $exists: false } }]
+        }).sort({ createdAt: -1 }).limit(5).lean();
+
+        for (const ut of unassignedMongoTeams) {
+          needsAttention.push({
+            id: ut._id.toString(),
+            name: ut.name,
+            reason: 'No mentor assigned',
+            item_type: 'team'
+          });
+          seenNeedsAttention.add(ut.name.trim().toLowerCase());
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB needsAttention notice]', mErr);
+      }
+    }
+
     try {
       const unassignedTeams = db.prepare(`
         SELECT t.id, t.name, 'No mentor assigned' as reason, 'team' as item_type
@@ -76,6 +148,13 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
         WHERE t.mentor_id IS NULL AND t.status = 'active'
         LIMIT 5
       `).all() as any[];
+
+      for (const ut of unassignedTeams) {
+        if (!seenNeedsAttention.has(ut.name.trim().toLowerCase())) {
+          needsAttention.push(ut);
+          seenNeedsAttention.add(ut.name.trim().toLowerCase());
+        }
+      }
 
       const overdueTeams = db.prepare(`
         SELECT DISTINCT t.id, t.name, 'Has overdue progress submission' as reason, 'submission' as item_type
@@ -85,7 +164,7 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
         LIMIT 5
       `).all() as any[];
 
-      needsAttention = [...unassignedTeams, ...overdueTeams];
+      needsAttention = [...needsAttention, ...overdueTeams];
     } catch {}
 
     // 4. Recent Activity
@@ -103,15 +182,26 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
     // 5. Mentor Workload
     let mentorAssignments: any[] = [];
     if (isMongoReady) {
-      const mentorUsers = await User.find({ role: 'MENTOR' }).sort({ name: 1 });
-      mentorAssignments = mentorUsers.map((m) => ({
-        id: m._id.toString(),
-        name: m.name,
-        email: m.email,
-        status: m.status.toLowerCase(),
-        department: m.department || 'Engineering',
-        team_count: 0
-      }));
+      try {
+        const mentorUsers = await User.find({ role: 'MENTOR' }).sort({ name: 1 }).lean();
+        const mIds = mentorUsers.map((m: any) => m._id);
+        const teamCounts = await Team.aggregate([
+          { $match: { mentorId: { $in: mIds } } },
+          { $group: { _id: '$mentorId', count: { $sum: 1 } } }
+        ]);
+        const countMap = new Map(teamCounts.map((tc: any) => [tc._id.toString(), tc.count]));
+
+        mentorAssignments = mentorUsers.map((m: any) => ({
+          id: m._id.toString(),
+          name: m.name,
+          email: m.email,
+          status: m.status ? m.status.toLowerCase() : 'active',
+          department: m.department || 'Computer Science',
+          team_count: countMap.get(m._id.toString()) || 0
+        }));
+      } catch (err) {
+        console.warn('[MongoDB mentor workload notice]', err);
+      }
     } else {
       const mentors = db.prepare(`
         SELECT u.id, u.name, u.email, u.status,
@@ -620,6 +710,8 @@ export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response)
     const rawId = req.params.id;
     const teamParam = decodeURIComponent(String(rawId || '').trim());
     const rawMentorId = req.body?.mentorId;
+    const rawTeamName = req.body?.teamName || req.body?.name;
+    const rawTeamId = req.body?.teamId;
     const isUnassign = !rawMentorId || rawMentorId === 'unassigned' || rawMentorId === 'none' || String(rawMentorId).trim() === '';
     const cleanMentorId = isUnassign ? null : String(rawMentorId).trim();
     const adminId = req.user?.id || 'usr_admin_1';
@@ -627,30 +719,57 @@ export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response)
 
     // 1. Resolve Team across SQLite & MongoDB
     let sqlTeam: any = null;
+    let mTeam: any = null;
+
+    // Try SQLite lookup
     try {
-      sqlTeam = db.prepare('SELECT id, name, mentor_id, year_cohort, department FROM teams WHERE id = ? OR name = ?').get(teamParam, teamParam) as any;
+      sqlTeam = db.prepare(`
+        SELECT id, name, mentor_id, year_cohort, department FROM teams 
+        WHERE id = ? OR name = ? OR (id = ? AND ? != '') OR (name = ? AND ? != '') COLLATE NOCASE
+      `).get(teamParam, teamParam, rawTeamId || '', rawTeamId || '', rawTeamName || '', rawTeamName || '') as any;
     } catch {}
 
-    let mTeam: any = null;
+    // Try MongoDB lookup
     if (isMongoReady) {
       try {
-        if (mongoose.Types.ObjectId.isValid(teamParam)) {
-          mTeam = await Team.findById(teamParam);
+        const candidateIds = [teamParam, rawTeamId].filter((x) => x && mongoose.Types.ObjectId.isValid(x));
+        for (const cid of candidateIds) {
+          mTeam = await Team.findById(cid);
+          if (mTeam) break;
         }
+
+        const candidateNames = [rawTeamName, teamParam, sqlTeam?.name].filter(Boolean);
+        for (const cname of candidateNames) {
+          if (mTeam) break;
+          mTeam = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegex(cname)}$`, 'i') } });
+        }
+
+        // Fallback: search Project by title
         if (!mTeam) {
-          mTeam = await Team.findOne({ name: teamParam });
-        }
-        if (!mTeam && sqlTeam?.name) {
-          mTeam = await Team.findOne({ name: sqlTeam.name });
+          for (const cname of candidateNames) {
+            const proj = await Project.findOne({ title: { $regex: new RegExp(`^${escapeRegex(cname)}$`, 'i') } });
+            if (proj && proj.teamId) {
+              mTeam = await Team.findById(proj.teamId);
+              if (mTeam) break;
+            }
+          }
         }
       } catch (mErr) {
         console.warn('[MongoDB team lookup notice]', mErr);
       }
     }
 
+    // Cross-bridge: If found in Mongo but not in SQLite, look up or mirror into SQLite
     if (!sqlTeam && mTeam?.name) {
       try {
-        sqlTeam = db.prepare('SELECT id, name, mentor_id, year_cohort, department FROM teams WHERE name = ?').get(mTeam.name) as any;
+        sqlTeam = db.prepare('SELECT id, name, mentor_id, year_cohort, department FROM teams WHERE name = ? COLLATE NOCASE OR id = ?').get(mTeam.name, mTeam._id.toString()) as any;
+      } catch {}
+    }
+
+    // Cross-bridge: If found in SQLite but not in Mongo, find in Mongo by name
+    if (sqlTeam && !mTeam && isMongoReady) {
+      try {
+        mTeam = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegex(sqlTeam.name)}$`, 'i') } });
       } catch {}
     }
 
@@ -659,7 +778,7 @@ export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response)
       return;
     }
 
-    const teamName = mTeam?.name || sqlTeam?.name || 'Team';
+    const teamName = mTeam?.name || sqlTeam?.name || rawTeamName || 'Team';
 
     // 2. Handle Unassign
     if (isUnassign) {

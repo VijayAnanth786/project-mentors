@@ -171,8 +171,8 @@ export const api = {
       const res = await apiClient.get('/admin/teams', { params });
       return res.data;
     },
-    assignMentor: async (teamId: string, mentorId: string | null) => {
-      const res = await apiClient.put(`/admin/teams/${teamId}/assign-mentor`, { mentorId });
+    assignMentor: async (teamId: string, mentorId: string | null, teamName?: string) => {
+      const res = await apiClient.put(`/admin/teams/${encodeURIComponent(teamId)}/assign-mentor`, { mentorId, teamName, teamId });
       return res.data;
     },
     getProjects: async (params?: { search?: string; status?: string }) => {

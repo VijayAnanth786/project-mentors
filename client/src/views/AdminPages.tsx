@@ -619,7 +619,8 @@ export const AdminAssignMentorsView: React.FC = () => {
   const executeAssignment = async (tId: string, mId: string) => {
     setSubmitting(true);
     try {
-      await api.admin.assignMentor(tId, mId || null);
+      const selectedT = teams.find((t: any) => t.id === tId) || selectedTeam;
+      await api.admin.assignMentor(tId, mId || null, selectedT?.name);
       showToast(mId ? 'Mentor assigned to team successfully!' : 'Mentor unassigned from team.', 'success');
       setReassignConfirm(null);
       setSelectedMentorId('');

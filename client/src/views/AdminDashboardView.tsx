@@ -150,7 +150,8 @@ export const AdminDashboardView: React.FC = () => {
   const executeAssignMentor = async (teamId: string, mentorId: string) => {
     setAssignSubmitting(true);
     try {
-      await api.admin.assignMentor(teamId, mentorId || null);
+      const teamObj = teams?.find((t: any) => t.id === teamId) || assignModalTeam;
+      await api.admin.assignMentor(teamId, mentorId || null, teamObj?.name);
       showToast('Mentor assignment saved successfully!', 'success');
       setIsAssignModalOpen(false);
       setAssignModalTeam(null);
@@ -213,7 +214,7 @@ export const AdminDashboardView: React.FC = () => {
                 const unassigned = teams.find((t: any) => !t.mentor_id) || teams[0];
                 setTargetTeamId(unassigned.id);
                 if (mentorsList && mentorsList.length > 0) {
-                  const activeM = mentorsList.find((m: any) => m.status === 'active') || mentorsList[0];
+                  const activeM = mentorsList.find((m: any) => !m.status || String(m.status).toLowerCase() === 'active') || mentorsList[0];
                   setTargetMentorId(activeM.id);
                 }
                 setIsAssignModalOpen(true);
@@ -327,7 +328,7 @@ export const AdminDashboardView: React.FC = () => {
                               setAssignModalTeam(t);
                               setTargetTeamId(t.id);
                               if (mentorsList && mentorsList.length > 0) {
-                                const activeM = mentorsList.find((m: any) => m.status === 'active') || mentorsList[0];
+                                const activeM = mentorsList.find((m: any) => !m.status || String(m.status).toLowerCase() === 'active') || mentorsList[0];
                                 setTargetMentorId(activeM.id);
                               }
                               setIsAssignModalOpen(true);
@@ -406,7 +407,7 @@ export const AdminDashboardView: React.FC = () => {
                         onClick={() => {
                           setTargetTeamId(item.id);
                           if (mentorsList && mentorsList.length > 0) {
-                            const activeM = mentorsList.find((m: any) => m.status === 'active') || mentorsList[0];
+                            const activeM = mentorsList.find((m: any) => !m.status || String(m.status).toLowerCase() === 'active') || mentorsList[0];
                             setTargetMentorId(activeM.id);
                           }
                           setIsAssignModalOpen(true);
