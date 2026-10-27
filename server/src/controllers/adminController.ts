@@ -5,6 +5,8 @@ import mongoose from 'mongoose';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import { User } from '../models/User';
+import { Team } from '../models/Team';
+import { Project } from '../models/Project';
 
 export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -24,11 +26,19 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
 
     let activeTeams = 0;
     let teamsWithoutMentors = 0;
+
+    if (isMongoReady) {
+      try {
+        activeTeams = await Team.countDocuments();
+        teamsWithoutMentors = await Team.countDocuments({ $or: [{ mentorId: null }, { mentorId: { $exists: false } }] });
+      } catch {}
+    }
+
     try {
       const activeTeamsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE status = 'active'").get() as any;
       const teamsWithoutMentorsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE mentor_id IS NULL AND status = 'active'").get() as any;
-      activeTeams = activeTeamsRow?.count || 0;
-      teamsWithoutMentors = teamsWithoutMentorsRow?.count || 0;
+      activeTeams = Math.max(activeTeams, activeTeamsRow?.count || 0);
+      teamsWithoutMentors = Math.max(teamsWithoutMentors, teamsWithoutMentorsRow?.count || 0);
     } catch {
       // Teams table empty or not initialized yet
     }
@@ -243,44 +253,65 @@ export const updateStudentStatus = async (req: AuthenticatedRequest, res: Respon
 export const getAdminMentors = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const isMongoReady = mongoose.connection.readyState === 1;
+    const combinedMentors: any[] = [];
+    const seenEmails = new Set<string>();
 
     if (isMongoReady) {
-      const mentors = await User.find({ role: 'MENTOR' }).sort({ name: 1 });
+      try {
+        const mentors = await User.find({ role: 'MENTOR' }).sort({ name: 1 });
+        for (const m of mentors) {
+          const normEmail = (m.email || '').toLowerCase().trim();
+          seenEmails.add(normEmail);
 
-      const formatted = mentors.map((m) => ({
-        id: m._id.toString(),
-        name: m.name,
-        email: m.email,
-        status: m.status.toLowerCase(),
-        avatar: m.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-        department: m.department || 'Computer Science',
-        title: 'Faculty Mentor',
-        bio: null,
-        phone: null,
-        team_count: 0,
-        mustChangePassword: m.mustChangePassword,
-        created_at: m.createdAt
-      }));
+          const teamCount = await Team.countDocuments({ mentorId: m._id });
 
-      res.json({ success: true, count: formatted.length, data: formatted });
-      return;
+          combinedMentors.push({
+            id: m._id.toString(),
+            name: m.name,
+            email: m.email,
+            status: m.status.toLowerCase(),
+            avatar: m.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+            department: m.department || 'Computer Science',
+            title: 'Faculty Mentor',
+            bio: null,
+            phone: null,
+            team_count: teamCount,
+            mustChangePassword: m.mustChangePassword,
+            created_at: m.createdAt
+          });
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB getAdminMentors error]', mErr);
+      }
     }
 
-    // Local SQLite fallback
-    const mentors = db.prepare(`
-      SELECT u.id, u.name, u.email, u.status, u.avatar, u.created_at,
-             COALESCE(mp.department, 'Computer Science') as department,
-             mp.title, mp.bio, mp.phone,
-             COUNT(t.id) as team_count
-      FROM users u
-      LEFT JOIN mentor_profiles mp ON u.id = mp.user_id
-      LEFT JOIN teams t ON u.id = t.mentor_id AND t.status = 'active'
-      WHERE u.role = 'mentor'
-      GROUP BY u.id
-      ORDER BY u.name ASC
-    `).all() as any[];
+    // Local SQLite fallback and merge
+    try {
+      const sqlMentors = db.prepare(`
+        SELECT u.id, u.name, u.email, u.status, u.avatar, u.created_at,
+               COALESCE(mp.department, 'Computer Science') as department,
+               mp.title, mp.bio, mp.phone,
+               COUNT(t.id) as team_count
+        FROM users u
+        LEFT JOIN mentor_profiles mp ON u.id = mp.user_id
+        LEFT JOIN teams t ON u.id = t.mentor_id AND t.status = 'active'
+        WHERE u.role = 'mentor'
+        GROUP BY u.id
+        ORDER BY u.name ASC
+      `).all() as any[];
 
-    res.json({ success: true, count: mentors.length, data: mentors });
+      for (const sm of sqlMentors) {
+        const normEmail = (sm.email || '').toLowerCase().trim();
+        if (!seenEmails.has(normEmail)) {
+          seenEmails.add(normEmail);
+          combinedMentors.push(sm);
+        }
+      }
+    } catch (sqlErr) {
+      console.warn('[SQLite getAdminMentors error]', sqlErr);
+    }
+
+    res.json({ success: true, count: combinedMentors.length, data: combinedMentors });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -471,70 +502,113 @@ export const updateMentorStatus = async (req: AuthenticatedRequest, res: Respons
 
 export const getAdminTeams = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { search, mentorFilter, status, page = '1', limit = '10' } = req.query;
+    const { search, mentorFilter, status, page = '1', limit = '50' } = req.query;
+    const isMongoReady = mongoose.connection.readyState === 1;
 
-    let countQuery = `
-      SELECT COUNT(*) as count
-      FROM teams t
-      LEFT JOIN projects p ON t.project_id = p.id
-      LEFT JOIN users lu ON t.leader_id = lu.id
-      LEFT JOIN users mu ON t.mentor_id = mu.id
-      WHERE 1=1
-    `;
+    let allTeams: any[] = [];
+    const seenNames = new Set<string>();
 
-    let dataQuery = `
-      SELECT t.id, t.name, t.status, t.year_cohort, t.department, t.created_at,
-             p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
-             lu.id as leader_id, lu.name as leader_name, lu.email as leader_email,
-             mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email,
-             (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as member_count
-      FROM teams t
-      LEFT JOIN projects p ON t.project_id = p.id
-      LEFT JOIN users lu ON t.leader_id = lu.id
-      LEFT JOIN users mu ON t.mentor_id = mu.id
-      WHERE 1=1
-    `;
+    // 1. Fetch from MongoDB Atlas
+    if (isMongoReady) {
+      try {
+        const mongoTeams = await Team.find()
+          .populate('leaderId', 'name email avatar')
+          .populate('mentorId', 'name email avatar role')
+          .populate('memberIds', 'name email avatar role')
+          .sort({ createdAt: -1 })
+          .lean();
 
-    const params: any[] = [];
+        const teamIds = mongoTeams.map((t: any) => t._id);
+        const mongoProjects = await Project.find({ teamId: { $in: teamIds } }).lean();
+        const projMap = new Map(mongoProjects.map((p: any) => [p.teamId.toString(), p]));
 
-    if (search) {
-      const term = `%${search}%`;
-      const searchClause = ` AND (t.name LIKE ? OR p.title LIKE ? OR lu.name LIKE ? OR mu.name LIKE ?)`;
-      countQuery += searchClause;
-      dataQuery += searchClause;
-      params.push(term, term, term, term);
+        for (const t of mongoTeams) {
+          const proj = projMap.get(t._id.toString());
+          const leader = t.leaderId as any;
+          const mentor = t.mentorId as any;
+          const item = {
+            id: t._id.toString(),
+            name: t.name,
+            status: 'active',
+            year_cohort: t.yearCohort || '3rd Year',
+            department: t.department || 'Computer Science',
+            created_at: t.createdAt,
+            project_id: proj ? proj._id.toString() : null,
+            project_title: proj?.title || null,
+            project_progress: proj?.progressPercentage || 0,
+            project_status: proj?.status || 'ON_TRACK',
+            leader_id: leader ? (leader._id ? leader._id.toString() : String(leader)) : '',
+            leader_name: leader?.name || 'Student Leader',
+            leader_email: leader?.email || '',
+            mentor_id: mentor ? (mentor._id ? mentor._id.toString() : String(mentor)) : null,
+            mentor_name: mentor?.name || null,
+            mentor_email: mentor?.email || null,
+            member_count: Array.isArray(t.memberIds) ? t.memberIds.length : 1
+          };
+          allTeams.push(item);
+          seenNames.add(t.name.trim().toLowerCase());
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB getAdminTeams error]', mErr);
+      }
     }
 
+    // 2. Fetch from SQLite
+    try {
+      const sqlTeams = db.prepare(`
+        SELECT t.id, t.name, t.status, t.year_cohort, t.department, t.created_at,
+               p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
+               lu.id as leader_id, lu.name as leader_name, lu.email as leader_email,
+               mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email,
+               (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as member_count
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN users lu ON t.leader_id = lu.id
+        LEFT JOIN users mu ON t.mentor_id = mu.id
+        ORDER BY t.created_at DESC
+      `).all() as any[];
+
+      for (const st of sqlTeams) {
+        if (!seenNames.has(st.name.trim().toLowerCase())) {
+          allTeams.push(st);
+          seenNames.add(st.name.trim().toLowerCase());
+        }
+      }
+    } catch {}
+
+    // Apply filtering
     if (mentorFilter === 'assigned') {
-      countQuery += ` AND t.mentor_id IS NOT NULL`;
-      dataQuery += ` AND t.mentor_id IS NOT NULL`;
+      allTeams = allTeams.filter((t) => Boolean(t.mentor_id));
     } else if (mentorFilter === 'unassigned') {
-      countQuery += ` AND t.mentor_id IS NULL`;
-      dataQuery += ` AND t.mentor_id IS NULL`;
+      allTeams = allTeams.filter((t) => !t.mentor_id);
     }
 
     if (status && status !== 'all') {
-      countQuery += ` AND t.status = ?`;
-      dataQuery += ` AND t.status = ?`;
-      params.push(status);
+      allTeams = allTeams.filter((t) => t.status === status);
     }
 
-    const totalCountRow = db.prepare(countQuery).get(...params) as any;
-    const totalCount = totalCountRow?.count || 0;
+    if (search) {
+      const term = String(search).toLowerCase();
+      allTeams = allTeams.filter((t) =>
+        t.name?.toLowerCase().includes(term) ||
+        t.project_title?.toLowerCase().includes(term) ||
+        t.leader_name?.toLowerCase().includes(term) ||
+        t.mentor_name?.toLowerCase().includes(term)
+      );
+    }
 
     const pageNum = parseInt(page as string, 10) || 1;
-    const limitNum = parseInt(limit as string, 10) || 10;
+    const limitNum = parseInt(limit as string, 10) || 50;
+    const totalCount = allTeams.length;
     const offset = (pageNum - 1) * limitNum;
-
-    dataQuery += ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
-    const teams = db.prepare(dataQuery).all(...params, limitNum, offset) as any[];
+    const paginated = allTeams.slice(offset, offset + limitNum);
 
     res.json({
       success: true,
       total: totalCount,
       page: pageNum,
-      totalPages: Math.ceil(totalCount / limitNum),
-      data: teams
+      totalPages: Math.ceil(totalCount / limitNum) || 1,
+      data: paginated
     });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -546,62 +620,190 @@ export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response)
     const { id } = req.params;
     const { mentorId } = req.body;
     const adminId = req.user?.id || 'usr_admin_1';
+    const isMongoReady = mongoose.connection.readyState === 1;
 
-    const team = db.prepare('SELECT id, name, mentor_id FROM teams WHERE id = ?').get(id) as any;
-    if (!team) {
+    let mentorName = 'None';
+    let targetMentorDoc: any = null;
+
+    // 1. If a mentorId is provided, resolve and validate the mentor
+    if (mentorId) {
+      const cleanMentorId = String(mentorId).trim();
+      // Try MongoDB
+      if (isMongoReady) {
+        try {
+          if (mongoose.Types.ObjectId.isValid(cleanMentorId)) {
+            targetMentorDoc = await User.findById(cleanMentorId);
+          }
+          if (!targetMentorDoc) {
+            targetMentorDoc = await User.findOne({
+              $or: [
+                { _id: mongoose.Types.ObjectId.isValid(cleanMentorId) ? new mongoose.Types.ObjectId(cleanMentorId) : null },
+                { email: cleanMentorId.toLowerCase() }
+              ]
+            });
+          }
+        } catch {}
+      }
+
+      // Try SQLite
+      if (!targetMentorDoc) {
+        try {
+          targetMentorDoc = db.prepare('SELECT id, name, status, role, email FROM users WHERE id = ? OR email = ? COLLATE NOCASE').get(cleanMentorId, cleanMentorId) as any;
+        } catch {}
+      }
+
+      if (!targetMentorDoc) {
+        res.status(400).json({ success: false, message: 'Selected mentor not found.' });
+        return;
+      }
+
+      const roleStr = String(targetMentorDoc.role || '').toLowerCase();
+      const statusStr = String(targetMentorDoc.status || '').toLowerCase();
+
+      if (roleStr !== 'mentor') {
+        res.status(400).json({ success: false, message: 'Selected user is not a faculty mentor.' });
+        return;
+      }
+      if (statusStr === 'inactive' || statusStr === 'blocked') {
+        res.status(400).json({ success: false, message: 'Cannot assign an inactive mentor.' });
+        return;
+      }
+
+      mentorName = targetMentorDoc.name;
+    }
+
+    let teamFound = false;
+    let teamName = 'Team';
+    let mongoUpdatedTeam: any = null;
+
+    // 2. Update in MongoDB Atlas if connected
+    if (isMongoReady) {
+      try {
+        let mTeam = null;
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          mTeam = await Team.findById(id);
+        }
+        if (!mTeam) {
+          mTeam = await Team.findOne({
+            $or: [
+              { _id: mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null },
+              { name: id }
+            ]
+          });
+        }
+
+        if (mTeam) {
+          teamFound = true;
+          teamName = mTeam.name;
+          mongoUpdatedTeam = mTeam;
+
+          let finalMongoMentorId: any = null;
+          if (mentorId && targetMentorDoc) {
+            if (targetMentorDoc._id) {
+              finalMongoMentorId = targetMentorDoc._id;
+            } else if (targetMentorDoc.email) {
+              const mUser = await User.findOne({ email: targetMentorDoc.email.toLowerCase() });
+              if (mUser) {
+                finalMongoMentorId = mUser._id;
+              }
+            }
+            if (!finalMongoMentorId && mongoose.Types.ObjectId.isValid(mentorId)) {
+              finalMongoMentorId = new mongoose.Types.ObjectId(mentorId);
+            }
+          }
+
+          mTeam.mentorId = finalMongoMentorId;
+          await mTeam.save();
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB assignTeamMentor error]', mErr);
+      }
+    }
+
+    // 3. Update in SQLite
+    try {
+      let sqlTeam = db.prepare('SELECT id, name, mentor_id FROM teams WHERE id = ? OR name = ?').get(id, id) as any;
+
+      if (!sqlTeam && mongoUpdatedTeam) {
+        // Sync SQLite with MongoDB team
+        const leaderIdStr = mongoUpdatedTeam.leaderId ? mongoUpdatedTeam.leaderId.toString() : 'usr_leader_stub';
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+            VALUES (?, 'Team Leader', 'leader@university.edu', 'managed_auth', 'student', 'active', '')
+          `).run(leaderIdStr);
+        } catch {}
+
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO teams (id, name, leader_id, mentor_id, year_cohort, department, status)
+            VALUES (?, ?, ?, NULL, ?, ?, 'active')
+          `).run(mongoUpdatedTeam._id.toString(), mongoUpdatedTeam.name, leaderIdStr, mongoUpdatedTeam.yearCohort || '3rd Year', mongoUpdatedTeam.department || 'Computer Science');
+        } catch {}
+
+        sqlTeam = db.prepare('SELECT id, name, mentor_id FROM teams WHERE id = ?').get(mongoUpdatedTeam._id.toString()) as any;
+      }
+
+      if (sqlTeam) {
+        teamFound = true;
+        teamName = sqlTeam.name;
+
+        // Ensure the mentor exists in SQLite so foreign key won't fail
+        let finalSqlMentorId = null;
+        if (mentorId) {
+          const mentorEmailTarget = (targetMentorDoc?.email || '').trim().toLowerCase();
+          const sqlMentor = db.prepare('SELECT id FROM users WHERE id = ? OR (email = ? AND ? != "") COLLATE NOCASE').get(mentorId, mentorEmailTarget, mentorEmailTarget) as any;
+          if (sqlMentor) {
+            finalSqlMentorId = sqlMentor.id;
+          } else {
+            finalSqlMentorId = targetMentorDoc?._id ? targetMentorDoc._id.toString() : String(mentorId);
+            try {
+              db.prepare(`
+                INSERT OR REPLACE INTO users (id, name, email, password_hash, role, status, avatar)
+                VALUES (?, ?, ?, 'managed_auth', 'mentor', 'active', ?)
+              `).run(finalSqlMentorId, targetMentorDoc?.name || mentorName, mentorEmailTarget || `${finalSqlMentorId}@university.edu`, targetMentorDoc?.avatar || '');
+            } catch {}
+          }
+        }
+
+        db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ?').run(finalSqlMentorId, sqlTeam.id);
+
+        const now = new Date().toISOString();
+        const actDesc = mentorId
+          ? `Admin assigned mentor ${mentorName} to team "${teamName}"`
+          : `Admin removed mentor assignment from team "${teamName}"`;
+
+        try {
+          db.prepare(`
+            INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
+            VALUES (?, ?, 'MENTOR_ASSIGNED', ?, 'team', ?, ?)
+          `).run(`act_${Date.now()}`, adminId, actDesc, sqlTeam.id, now);
+        } catch {}
+
+        if (finalSqlMentorId) {
+          try {
+            db.prepare(`
+              INSERT INTO notifications (id, user_id, title, message, type, is_read, link, created_at)
+              VALUES (?, ?, 'New Team Assigned', ?, 'team', 0, '/mentor/teams', ?)
+            `).run(`notif_${Date.now()}`, finalSqlMentorId, `You have been assigned as mentor for "${teamName}".`, now);
+          } catch {}
+        }
+      }
+    } catch (sqlErr) {
+      console.warn('[SQLite assignTeamMentor error]', sqlErr);
+    }
+
+    if (!teamFound) {
       res.status(404).json({ success: false, message: 'Team not found.' });
       return;
     }
 
-    let mentorName = 'None';
-    if (mentorId) {
-      const mentor = db.prepare('SELECT id, name, status, role FROM users WHERE id = ?').get(mentorId) as any;
-      if (!mentor || mentor.role !== 'mentor') {
-        res.status(400).json({ success: false, message: 'Invalid mentor selected.' });
-        return;
-      }
-      if (mentor.status !== 'active') {
-        res.status(400).json({ success: false, message: 'Cannot assign an inactive mentor.' });
-        return;
-      }
-      mentorName = mentor.name;
-    }
-
-    const now = new Date().toISOString();
-
-    db.exec('BEGIN TRANSACTION;');
-    try {
-      db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ?').run(mentorId || null, id);
-
-      // Log activity event
-      const actDesc = mentorId
-        ? `Admin assigned mentor ${mentorName} to team "${team.name}"`
-        : `Admin removed mentor assignment from team "${team.name}"`;
-
-      db.prepare(`
-        INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
-        VALUES (?, ?, 'MENTOR_ASSIGNED', ?, 'team', ?, ?)
-      `).run(`act_${Date.now()}`, adminId, actDesc, id, now);
-
-      // Notify mentor if assigned
-      if (mentorId) {
-        db.prepare(`
-          INSERT INTO notifications (id, user_id, title, message, type, is_read, link, created_at)
-          VALUES (?, ?, 'New Team Assigned', ?, 'team', 0, '/mentor/teams', ?)
-        `).run(`notif_${Date.now()}`, mentorId, `You have been assigned as the mentor for team "${team.name}".`, now);
-      }
-
-      db.exec('COMMIT;');
-
-      res.json({
-        success: true,
-        message: mentorId ? `Mentor ${mentorName} assigned to ${team.name} successfully.` : `Mentor unassigned from ${team.name}.`
-      });
-    } catch (err: any) {
-      db.exec('ROLLBACK;');
-      throw err;
-    }
+    res.json({
+      success: true,
+      message: mentorId ? `Mentor ${mentorName} assigned to team "${teamName}" successfully.` : `Mentor unassigned from team "${teamName}".`
+    });
   } catch (error: any) {
+    console.error('[Assign Mentor Error]', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -609,41 +811,90 @@ export const assignTeamMentor = async (req: AuthenticatedRequest, res: Response)
 export const getAdminProjects = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { search, status } = req.query;
+    const isMongoReady = mongoose.connection.readyState === 1;
 
-    let query = `
-      SELECT p.id, p.title, p.description, p.tech_stack, p.repo_url, p.status, p.deadline, p.progress, p.created_at,
-             t.id as team_id, t.name as team_name,
-             lu.name as leader_name,
-             mu.name as mentor_name
-      FROM projects p
-      LEFT JOIN teams t ON t.project_id = p.id
-      LEFT JOIN users lu ON t.leader_id = lu.id
-      LEFT JOIN users mu ON t.mentor_id = mu.id
-      WHERE 1=1
-    `;
-    const params: any[] = [];
+    let allProjects: any[] = [];
+    const seenTitles = new Set<string>();
+
+    if (isMongoReady) {
+      try {
+        const mongoProjects = await Project.find()
+          .populate({
+            path: 'teamId',
+            populate: [
+              { path: 'leaderId', select: 'name email' },
+              { path: 'mentorId', select: 'name email' }
+            ]
+          })
+          .sort({ progressPercentage: -1 })
+          .lean();
+
+        for (const p of mongoProjects) {
+          const team = p.teamId as any;
+          const leader = team?.leaderId as any;
+          const mentor = team?.mentorId as any;
+          const item = {
+            id: p._id.toString(),
+            title: p.title,
+            description: p.description,
+            tech_stack: JSON.stringify(p.techStack || []),
+            techStack: p.techStack || [],
+            repo_url: p.githubUrl,
+            status: p.status,
+            deadline: p.deadline,
+            progress: p.progressPercentage,
+            created_at: p.createdAt,
+            team_id: team ? (team._id ? team._id.toString() : String(team)) : null,
+            team_name: team?.name || 'Unassigned',
+            leader_name: leader?.name || 'Student Leader',
+            mentor_name: mentor?.name || 'Unassigned'
+          };
+          allProjects.push(item);
+          seenTitles.add(p.title.trim().toLowerCase());
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB getAdminProjects error]', mErr);
+      }
+    }
+
+    try {
+      const sqlProjects = db.prepare(`
+        SELECT p.id, p.title, p.description, p.tech_stack, p.repo_url, p.status, p.deadline, p.progress, p.created_at,
+               t.id as team_id, t.name as team_name,
+               lu.name as leader_name,
+               mu.name as mentor_name
+        FROM projects p
+        LEFT JOIN teams t ON t.project_id = p.id
+        LEFT JOIN users lu ON t.leader_id = lu.id
+        LEFT JOIN users mu ON t.mentor_id = mu.id
+        ORDER BY p.progress DESC
+      `).all() as any[];
+
+      for (const sp of sqlProjects) {
+        if (!seenTitles.has(sp.title.trim().toLowerCase())) {
+          allProjects.push({
+            ...sp,
+            techStack: sp.tech_stack ? (typeof sp.tech_stack === 'string' ? JSON.parse(sp.tech_stack) : sp.tech_stack) : []
+          });
+          seenTitles.add(sp.title.trim().toLowerCase());
+        }
+      }
+    } catch {}
 
     if (search) {
-      const term = `%${search}%`;
-      query += ` AND (p.title LIKE ? OR p.description LIKE ? OR t.name LIKE ?)`;
-      params.push(term, term, term);
+      const term = String(search).toLowerCase();
+      allProjects = allProjects.filter((p) =>
+        p.title?.toLowerCase().includes(term) ||
+        p.description?.toLowerCase().includes(term) ||
+        p.team_name?.toLowerCase().includes(term)
+      );
     }
 
     if (status && status !== 'all') {
-      query += ` AND p.status = ?`;
-      params.push(status);
+      allProjects = allProjects.filter((p) => p.status === status);
     }
 
-    query += ` ORDER BY p.progress DESC`;
-
-    const projects = db.prepare(query).all(...params) as any[];
-
-    const formatted = projects.map((p) => ({
-      ...p,
-      techStack: p.tech_stack ? JSON.parse(p.tech_stack) : []
-    }));
-
-    res.json({ success: true, count: formatted.length, data: formatted });
+    res.json({ success: true, count: allProjects.length, data: allProjects });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

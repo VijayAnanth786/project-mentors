@@ -63,7 +63,8 @@ export const getTeams = async (req: AuthenticatedRequest, res: Response): Promis
 export const createTeam = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { name, yearCohort, leaderId, memberIds, mentorId, department, projectTitle } = req.body;
-    const effectiveLeaderId = leaderId || req.user?.id;
+    let effectiveLeaderId = leaderId || req.user?.id;
+    const leaderEmail = (req.user?.email || '').toLowerCase();
     const assignedMentorId = req.user?.role === 'mentor' ? req.user.id : (mentorId || null);
     const now = new Date().toISOString();
     const teamId = `team_${Date.now()}`;
@@ -71,21 +72,35 @@ export const createTeam = async (req: AuthenticatedRequest, res: Response): Prom
 
     // SQLite persistence
     try {
+      // Ensure leader exists in SQLite users
+      const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(effectiveLeaderId) as any;
+      if (!existingUser && leaderEmail) {
+        const userByEmail = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(leaderEmail) as any;
+        if (userByEmail) {
+          effectiveLeaderId = userByEmail.id;
+        } else {
+          db.prepare(`
+            INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+            VALUES (?, ?, ?, 'managed_auth', 'student', 'active', ?)
+          `).run(effectiveLeaderId, req.user?.name || 'Student', leaderEmail, req.user?.avatar || '');
+        }
+      }
+
       const pTitle = projectTitle || `${name} Project`;
       db.prepare(`
-        INSERT INTO projects (id, title, description, tech_stack, status, deadline, progress, created_at)
-        VALUES (?, ?, ?, ?, 'ON_TRACK', date('now', '+60 days'), 0, ?)
+        INSERT OR REPLACE INTO projects (id, title, description, tech_stack, status, deadline, progress, created_at)
+        VALUES (?, ?, ?, ?, 'ON_TRACK', date('now', '+60 days'), 10, ?)
       `).run(projId, pTitle, `Workspace for ${pTitle}`, JSON.stringify(['React', 'TypeScript', 'Node.js']), now);
 
       db.prepare(`
-        INSERT INTO teams (id, name, leader_id, mentor_id, project_id, year_cohort, department, status, created_at)
+        INSERT OR REPLACE INTO teams (id, name, leader_id, mentor_id, project_id, year_cohort, department, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
       `).run(teamId, name, effectiveLeaderId, assignedMentorId, projId, yearCohort || '3rd Year', department || 'Computer Science', now);
 
       db.prepare(`
-        INSERT INTO team_members (id, team_id, user_id, role, created_at)
+        INSERT OR REPLACE INTO team_members (id, team_id, user_id, role, created_at)
         VALUES (?, ?, ?, 'Team Leader', ?)
-      `).run(`tm_${Date.now()}`, teamId, effectiveLeaderId, now);
+      `).run(`tm_${teamId}_${effectiveLeaderId}`, teamId, effectiveLeaderId, now);
     } catch (sqlErr) {
       console.warn('[SQLite team create notice]', sqlErr);
     }
@@ -95,7 +110,7 @@ export const createTeam = async (req: AuthenticatedRequest, res: Response): Prom
       try {
         await Team.create({
           name,
-          yearCohort,
+          yearCohort: yearCohort || '3rd Year',
           leaderId: effectiveLeaderId,
           memberIds: memberIds || [effectiveLeaderId],
           mentorId: assignedMentorId,

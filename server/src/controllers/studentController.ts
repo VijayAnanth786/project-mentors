@@ -10,6 +10,7 @@ import { Progress } from '../models/Progress';
 export const getStudentDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const studentId = req.user?.id || '';
+    const studentEmail = req.user?.email ? req.user.email.toLowerCase() : '';
     const isMongoReady = mongoose.connection.readyState === 1;
 
     let studentProfile = {
@@ -26,9 +27,12 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
     // 1. Try MongoDB Atlas if connected
     if (isMongoReady) {
       try {
-        let userDoc = await User.findById(studentId);
-        if (!userDoc && req.user?.email) {
-          userDoc = await User.findOne({ email: req.user.email.toLowerCase() });
+        let userDoc = null;
+        if (mongoose.Types.ObjectId.isValid(studentId)) {
+          userDoc = await User.findById(studentId);
+        }
+        if (!userDoc && studentEmail) {
+          userDoc = await User.findOne({ email: studentEmail });
         }
 
         if (userDoc) {
@@ -50,12 +54,30 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
           const teamDoc = await Team.findOne({
             $or: [{ leaderId: effectiveId }, { memberIds: effectiveId }]
           })
-            .populate('mentorId', 'name email')
+            .populate('mentorId', 'name email avatar')
             .populate('memberIds', 'name email avatar role')
             .populate('leaderId', 'name email avatar role');
 
           if (teamDoc) {
-            const projectDoc = await Project.findOne({ teamId: teamDoc._id });
+            let projectDoc = await Project.findOne({ teamId: teamDoc._id });
+            if (!projectDoc) {
+              projectDoc = await Project.create({
+                title: `${teamDoc.name} Project`,
+                description: `Workspace for ${teamDoc.name}`,
+                techStack: ['React', 'TypeScript', 'Node.js'],
+                teamId: teamDoc._id,
+                deadline: new Date(Date.now() + 60 * 24 * 3600 * 1000),
+                progressPercentage: 10,
+                status: 'ON_TRACK',
+                milestones: [
+                  { title: 'Project Proposal & Requirement Specs', status: 'Completed' },
+                  { title: 'System Architecture & Database Design', status: 'In Progress' },
+                  { title: 'Core Functionality & API Pipeline', status: 'Pending' },
+                  { title: 'UI Polish, Review & Deployment', status: 'Pending' }
+                ]
+              });
+            }
+
             const progressDocs = await Progress.find({ teamId: teamDoc._id }).sort({ weekNumber: -1, submissionDate: -1 });
 
             const mentorObj = teamDoc.mentorId as any;
@@ -71,6 +93,7 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
                   name: teamDoc.name,
                   yearCohort: teamDoc.yearCohort,
                   department: teamDoc.department,
+                  mentor_id: mentorObj?._id ? mentorObj._id.toString() : null,
                   mentorName: mentorObj?.name || 'Unassigned Faculty',
                   mentorEmail: mentorObj?.email || '',
                   role: teamDoc.leaderId?.toString() === effectiveId.toString() ? 'Team Leader' : 'Member',
@@ -82,25 +105,23 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
                     role: (m._id ? m._id.toString() : String(m)) === teamDoc.leaderId?.toString() ? 'Team Leader' : 'Member'
                   }))
                 },
-                project: projectDoc
-                  ? {
-                      id: projectDoc._id.toString(),
-                      title: projectDoc.title,
-                      description: projectDoc.description,
-                      techStack: projectDoc.techStack || [],
-                      repoUrl: projectDoc.githubUrl,
-                      progressPercentage: projectDoc.progressPercentage || 0,
-                      status: projectDoc.status,
-                      currentPhase: projectDoc.currentPhase,
-                      deadline: projectDoc.deadline ? projectDoc.deadline.toISOString().slice(0, 10) : null,
-                      milestones: (projectDoc.milestones || []).map((ms: any) => ({
-                        id: ms._id ? ms._id.toString() : ms.id,
-                        title: ms.title,
-                        status: ms.status,
-                        targetDate: ms.targetDate ? ms.targetDate.toISOString().slice(0, 10) : undefined
-                      }))
-                    }
-                  : null,
+                project: {
+                  id: projectDoc._id.toString(),
+                  title: projectDoc.title,
+                  description: projectDoc.description,
+                  techStack: projectDoc.techStack || ['React', 'TypeScript', 'Node.js'],
+                  repoUrl: projectDoc.githubUrl || '',
+                  progressPercentage: projectDoc.progressPercentage || 10,
+                  status: projectDoc.status || 'ON_TRACK',
+                  currentPhase: projectDoc.currentPhase || 'Design & Architecture',
+                  deadline: projectDoc.deadline ? projectDoc.deadline.toISOString().slice(0, 10) : new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10),
+                  milestones: (projectDoc.milestones || []).map((ms: any) => ({
+                    id: ms._id ? ms._id.toString() : ms.id,
+                    title: ms.title,
+                    status: ms.status,
+                    targetDate: ms.targetDate ? ms.targetDate.toISOString().slice(0, 10) : undefined
+                  }))
+                },
                 submissions: progressDocs.map((sub: any) => ({
                   id: sub._id.toString(),
                   week: sub.weekNumber,
@@ -128,29 +149,32 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
     // 2. Local Fallback via SQLite
     // Try to load student profile details from student_profiles table
     try {
-      const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(studentId) as any;
+      const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ? OR user_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)').get(studentId, studentEmail) as any;
       if (sp) {
         studentProfile.department = sp.department || studentProfile.department;
         studentProfile.year = sp.year_cohort || studentProfile.year;
       }
     } catch {}
 
-    // Find student's team membership in SQLite
+    // Find student's team membership in SQLite (checking both ID and email)
     let membership: any = null;
     try {
       membership = db.prepare(`
         SELECT tm.team_id, tm.role as team_role,
-               t.name as team_name, t.year_cohort, t.department, t.mentor_id, t.project_id,
+               t.id as actual_team_id, t.name as team_name, t.year_cohort, t.department, t.mentor_id, t.project_id,
                p.title as project_title, p.description as project_description, p.tech_stack,
                p.repo_url, p.progress, p.status as project_status, p.deadline as project_deadline,
                mu.name as mentor_name, mu.email as mentor_email
-        FROM team_members tm
-        JOIN teams t ON tm.team_id = t.id
+        FROM teams t
+        LEFT JOIN team_members tm ON tm.team_id = t.id
         LEFT JOIN projects p ON t.project_id = p.id
         LEFT JOIN users mu ON t.mentor_id = mu.id
         WHERE tm.user_id = ?
+           OR t.leader_id = ?
+           OR tm.user_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)
+           OR t.leader_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)
         LIMIT 1
-      `).get(studentId) as any;
+      `).get(studentId, studentId, studentEmail, studentEmail) as any;
     } catch {}
 
     if (!membership) {
@@ -168,6 +192,8 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
       return;
     }
 
+    const effectiveTeamId = membership.team_id || membership.actual_team_id;
+
     // Milestones
     const milestones = membership.project_id
       ? db.prepare(`
@@ -179,12 +205,22 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
       : [];
 
     // Team Members
-    const members = db.prepare(`
+    let members = db.prepare(`
       SELECT u.id, u.name, u.email, u.avatar, tm.role
       FROM team_members tm
       JOIN users u ON tm.user_id = u.id
       WHERE tm.team_id = ?
-    `).all(membership.team_id) as any[];
+    `).all(effectiveTeamId) as any[];
+
+    if (!members || members.length === 0) {
+      members = [{
+        id: studentProfile.id,
+        name: studentProfile.name,
+        email: studentProfile.email,
+        avatar: studentProfile.avatar,
+        role: 'Team Leader'
+      }];
+    }
 
     // Submissions
     const submissions = db.prepare(`
@@ -195,7 +231,7 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
       LEFT JOIN users u ON ws.reviewer_id = u.id
       WHERE ws.team_id = ?
       ORDER BY ws.week DESC, ws.created_at DESC
-    `).all(membership.team_id) as any[];
+    `).all(effectiveTeamId) as any[];
 
     const formattedSubmissions = submissions.map((s) => ({
       ...s,
@@ -224,7 +260,7 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
         JOIN users u ON m.mentor_id = u.id
         WHERE m.team_id = ? AND m.status = 'upcoming' AND m.date >= date('now')
         ORDER BY m.date ASC
-      `).all(membership.team_id) as any[];
+      `).all(effectiveTeamId) as any[];
     } catch {}
 
     res.json({
@@ -233,28 +269,32 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
         hasTeam: true,
         studentProfile,
         team: {
-          id: membership.team_id,
+          id: effectiveTeamId,
           name: membership.team_name,
           yearCohort: membership.year_cohort,
           department: membership.department,
-          mentorName: membership.mentor_name,
-          mentorEmail: membership.mentor_email,
-          role: membership.team_role,
+          mentor_id: membership.mentor_id || '',
+          mentorName: membership.mentor_name || 'Unassigned Faculty',
+          mentorEmail: membership.mentor_email || '',
+          role: membership.team_role || 'Team Leader',
           members
         },
-        project: membership.project_id
-          ? {
-              id: membership.project_id,
-              title: membership.project_title,
-              description: membership.project_description,
-              techStack: membership.tech_stack ? (typeof membership.tech_stack === 'string' ? JSON.parse(membership.tech_stack) : membership.tech_stack) : [],
-              repoUrl: membership.repo_url,
-              progressPercentage: membership.progress,
-              status: membership.project_status,
-              deadline: membership.project_deadline,
-              milestones
-            }
-          : null,
+        project: {
+          id: membership.project_id || `proj_${effectiveTeamId}`,
+          title: membership.project_title || `${membership.team_name} Project`,
+          description: membership.project_description || `Workspace for ${membership.team_name}`,
+          techStack: membership.tech_stack ? (typeof membership.tech_stack === 'string' ? JSON.parse(membership.tech_stack) : membership.tech_stack) : ['React', 'TypeScript', 'Node.js'],
+          repoUrl: membership.repo_url || '',
+          progressPercentage: membership.progress || 10,
+          status: membership.project_status || 'ON_TRACK',
+          deadline: membership.project_deadline || new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10),
+          milestones: milestones.length > 0 ? milestones : [
+            { id: 'm1', title: 'Project Proposal & Requirement Specs', status: 'Completed', deadline: new Date().toISOString().slice(0, 10) },
+            { id: 'm2', title: 'System Architecture & Database Design', status: 'In Progress', deadline: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().slice(0, 10) },
+            { id: 'm3', title: 'Core Functionality & API Pipeline', status: 'Pending', deadline: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10) },
+            { id: 'm4', title: 'UI Polish, Review & Deployment', status: 'Pending', deadline: new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10) }
+          ]
+        },
         submissions: formattedSubmissions,
         announcements,
         meetings
@@ -377,6 +417,7 @@ export const submitStudentWeeklyProgress = async (req: AuthenticatedRequest, res
 export const createStudentTeam = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const studentId = req.user?.id || '';
+    const studentEmail = req.user?.email ? req.user.email.toLowerCase() : '';
     const { name, projectTitle, description, techStack, yearCohort, department, githubUrl } = req.body;
 
     if (!name?.trim() || !projectTitle?.trim()) {
@@ -391,7 +432,13 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
     // 1. Persist to MongoDB Atlas if connected
     if (isMongoReady) {
       try {
-        const studentUser = await User.findById(studentId) || (req.user?.email ? await User.findOne({ email: req.user.email.toLowerCase() }) : null);
+        let studentUser = null;
+        if (mongoose.Types.ObjectId.isValid(studentId)) {
+          studentUser = await User.findById(studentId);
+        }
+        if (!studentUser && studentEmail) {
+          studentUser = await User.findOne({ email: studentEmail });
+        }
         const effectiveId = studentUser ? studentUser._id : (mongoose.Types.ObjectId.isValid(studentId) ? new mongoose.Types.ObjectId(studentId) : null);
 
         if (effectiveId) {
@@ -401,16 +448,12 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
           });
 
           if (!existingTeam) {
-            // Find an active faculty mentor to assign by default
-            const defaultMentor = await User.findOne({ role: 'MENTOR' });
-            const mentorId = defaultMentor ? defaultMentor._id : effectiveId;
-
             const newTeam = await Team.create({
               name: name.trim(),
               yearCohort: yearCohort || req.user?.year || '3rd Year',
               leaderId: effectiveId,
               memberIds: [effectiveId],
-              mentorId,
+              mentorId: null, // Admin assigns mentor later
               department: department || req.user?.department || 'Computer Science'
             });
 
@@ -448,8 +491,31 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
     const techArray = Array.isArray(techStack) ? techStack : (techStack ? techStack.split(',').map((s: string) => s.trim()) : ['React', 'TypeScript', 'Node.js']);
 
     try {
+      // Ensure the student exists in SQLite users table to satisfy foreign keys
+      let sqliteLeaderId = studentId;
+      const existingUser = db.prepare('SELECT id FROM users WHERE id = ?').get(studentId) as any;
+      if (existingUser) {
+        sqliteLeaderId = existingUser.id;
+      } else if (studentEmail) {
+        const userByEmail = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(studentEmail) as any;
+        if (userByEmail) {
+          sqliteLeaderId = userByEmail.id;
+        } else {
+          db.prepare(`
+            INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+            VALUES (?, ?, ?, 'managed_auth', 'student', 'active', ?)
+          `).run(
+            studentId,
+            req.user?.name || 'Student',
+            studentEmail,
+            req.user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80'
+          );
+          sqliteLeaderId = studentId;
+        }
+      }
+
       db.prepare(`
-        INSERT INTO projects (id, title, description, tech_stack, repo_url, status, deadline, progress, created_at)
+        INSERT OR REPLACE INTO projects (id, title, description, tech_stack, repo_url, status, deadline, progress, created_at)
         VALUES (?, ?, ?, ?, ?, 'ON_TRACK', ?, 10, ?)
       `).run(
         projId,
@@ -462,12 +528,12 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
       );
 
       db.prepare(`
-        INSERT INTO teams (id, name, leader_id, mentor_id, project_id, year_cohort, department, status, created_at)
+        INSERT OR REPLACE INTO teams (id, name, leader_id, mentor_id, project_id, year_cohort, department, status, created_at)
         VALUES (?, ?, ?, NULL, ?, ?, ?, 'active', ?)
       `).run(
         teamId,
         name.trim(),
-        studentId,
+        sqliteLeaderId,
         projId,
         yearCohort || req.user?.year || '3rd Year',
         department || req.user?.department || 'Computer Science',
@@ -475,9 +541,9 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
       );
 
       db.prepare(`
-        INSERT INTO team_members (id, team_id, user_id, role, created_at)
+        INSERT OR REPLACE INTO team_members (id, team_id, user_id, role, created_at)
         VALUES (?, ?, ?, 'Team Leader', ?)
-      `).run(`tm_${Date.now()}`, teamId, studentId, now);
+      `).run(`tm_${teamId}_${sqliteLeaderId}`, teamId, sqliteLeaderId, now);
 
       const milestones = [
         { id: `m1_${Date.now()}`, title: 'Project Proposal & Requirement Specs', status: 'Completed', order: 1 },
@@ -488,7 +554,7 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
 
       for (const m of milestones) {
         db.prepare(`
-          INSERT INTO milestones (id, project_id, title, deadline, status, order_index)
+          INSERT OR REPLACE INTO milestones (id, project_id, title, deadline, status, order_index)
           VALUES (?, ?, ?, ?, ?, ?)
         `).run(m.id, projId, m.title, deadlineDate, m.status, m.order);
       }
@@ -514,7 +580,11 @@ export const createStudentTeam = async (req: AuthenticatedRequest, res: Response
 export const getStudentTeams = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const studentId = req.user?.id || '';
+    const studentEmail = req.user?.email ? req.user.email.toLowerCase() : '';
     const isMongoReady = mongoose.connection.readyState === 1;
+
+    let combinedTeams: any[] = [];
+    const seenNames = new Set<string>();
 
     // 1. Try Mongo Teams
     if (isMongoReady) {
@@ -523,56 +593,89 @@ export const getStudentTeams = async (req: AuthenticatedRequest, res: Response):
           .populate('leaderId', 'name email avatar')
           .populate('mentorId', 'name email');
 
-        if (mongoTeams.length > 0) {
-          const formatted = await Promise.all(mongoTeams.map(async (t: any) => {
-            const proj = await Project.findOne({ teamId: t._id });
-            const isMyTeam = t.leaderId?._id?.toString() === studentId ||
-              (t.memberIds || []).some((m: any) => m.toString() === studentId);
+        for (const t of mongoTeams) {
+          const tName = (t.name || '').trim().toLowerCase();
+          seenNames.add(tName);
+          const proj = await Project.findOne({ teamId: t._id });
+          const leaderIdStr = (t.leaderId as any)?._id?.toString() || (t.leaderId as any)?.toString();
+          const leaderEmailStr = (t.leaderId as any)?.email?.toLowerCase();
+          const isMyTeam = leaderIdStr === studentId ||
+            (studentEmail && leaderEmailStr === studentEmail) ||
+            (t.memberIds || []).some((m: any) => {
+              const mId = m?._id ? m._id.toString() : m.toString();
+              const mEmail = m?.email?.toLowerCase();
+              return mId === studentId || (studentEmail && mEmail === studentEmail);
+            });
 
-            return {
-              id: t._id.toString(),
-              name: t.name,
-              yearCohort: t.yearCohort,
-              department: t.department,
-              status: 'active',
-              project_id: proj?._id?.toString(),
-              projectTitle: proj?.title || `${t.name} Project`,
-              progressPercentage: proj?.progressPercentage || 0,
-              projectStatus: proj?.status || 'ON_TRACK',
-              leader_id: t.leaderId?._id?.toString(),
-              leaderName: t.leaderId?.name || 'Student Leader',
-              mentor_id: t.mentorId?._id?.toString(),
-              mentorName: t.mentorId?.name || 'Faculty Mentor',
-              memberCount: (t.memberIds || []).length || 1,
-              isMyTeam: isMyTeam ? 1 : 0
-            };
-          }));
-
-          res.json({ success: true, count: formatted.length, data: formatted });
-          return;
+          combinedTeams.push({
+            id: t._id.toString(),
+            name: t.name,
+            yearCohort: t.yearCohort,
+            department: t.department,
+            status: 'active',
+            project_id: proj?._id?.toString(),
+            projectTitle: proj?.title || `${t.name} Project`,
+            progressPercentage: proj?.progressPercentage || 10,
+            projectStatus: proj?.status || 'ON_TRACK',
+            leader_id: leaderIdStr,
+            leaderName: (t.leaderId as any)?.name || 'Student Leader',
+            mentor_id: (t.mentorId as any)?._id?.toString() || null,
+            mentorName: (t.mentorId as any)?.name || 'Unassigned Faculty',
+            memberCount: (t.memberIds || []).length || 1,
+            isMyTeam: isMyTeam ? 1 : 0
+          });
         }
       } catch (mErr) {
         console.warn('[MongoDB getStudentTeams notice]', mErr);
       }
     }
 
-    // 2. Fallback to SQLite
-    const teams = db.prepare(`
-      SELECT t.id, t.name, t.year_cohort as yearCohort, t.department, t.status,
-             p.id as project_id, p.title as projectTitle, p.progress as progressPercentage, p.status as projectStatus,
-             u.id as leader_id, u.name as leaderName,
-             mu.id as mentor_id, mu.name as mentorName,
-             (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as memberCount,
-             (SELECT COUNT(*) FROM team_members WHERE team_id = t.id AND user_id = ?) as isMyTeam
-      FROM teams t
-      LEFT JOIN projects p ON t.project_id = p.id
-      LEFT JOIN users u ON t.leader_id = u.id
-      LEFT JOIN users mu ON t.mentor_id = mu.id
-      WHERE t.status = 'active'
-      ORDER BY t.created_at DESC
-    `).all(studentId) as any[];
+    // 2. Fallback / Merge with SQLite
+    try {
+      const sqlTeams = db.prepare(`
+        SELECT t.id, t.name, t.year_cohort as yearCohort, t.department, t.status,
+               p.id as project_id, p.title as projectTitle, p.progress as progressPercentage, p.status as projectStatus,
+               u.id as leader_id, u.name as leaderName,
+               mu.id as mentor_id, mu.name as mentorName,
+               (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as memberCount,
+               (SELECT COUNT(*) FROM team_members WHERE team_id = t.id AND (user_id = ? OR user_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE))) as isMember,
+               CASE WHEN t.leader_id = ? OR t.leader_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE) THEN 1 ELSE 0 END as isLeader
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN users u ON t.leader_id = u.id
+        LEFT JOIN users mu ON t.mentor_id = mu.id
+        WHERE t.status = 'active'
+        ORDER BY t.created_at DESC
+      `).all(studentId, studentEmail, studentId, studentEmail) as any[];
 
-    res.json({ success: true, count: teams.length, data: teams });
+      for (const st of sqlTeams) {
+        const tName = (st.name || '').trim().toLowerCase();
+        if (!seenNames.has(tName)) {
+          seenNames.add(tName);
+          combinedTeams.push({
+            id: st.id,
+            name: st.name,
+            yearCohort: st.yearCohort,
+            department: st.department,
+            status: 'active',
+            project_id: st.project_id,
+            projectTitle: st.projectTitle || `${st.name} Project`,
+            progressPercentage: st.progressPercentage || 10,
+            projectStatus: st.projectStatus || 'ON_TRACK',
+            leader_id: st.leader_id,
+            leaderName: st.leaderName || 'Student Leader',
+            mentor_id: st.mentor_id || null,
+            mentorName: st.mentorName || 'Unassigned Faculty',
+            memberCount: st.memberCount || 1,
+            isMyTeam: (st.isMember > 0 || st.isLeader > 0) ? 1 : 0
+          });
+        }
+      }
+    } catch (sqlErr) {
+      console.warn('[SQLite getStudentTeams notice]', sqlErr);
+    }
+
+    res.json({ success: true, count: combinedTeams.length, data: combinedTeams });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -1,13 +1,38 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
+import { User } from '../models/User';
+import { Team } from '../models/Team';
 
 export const getMentorDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mentorId = req.user?.id;
+    const mentorEmail = (req.user?.email || '').toLowerCase();
     if (!mentorId) {
       res.status(401).json({ success: false, message: 'Unauthorized' });
       return;
+    }
+
+    // Sync from MongoDB Atlas if connected
+    if (mongoose.connection.readyState === 1) {
+      try {
+        let mUser = null;
+        if (mongoose.Types.ObjectId.isValid(mentorId)) {
+          mUser = await User.findById(mentorId);
+        }
+        if (!mUser && mentorEmail) {
+          mUser = await User.findOne({ email: mentorEmail });
+        }
+        if (mUser) {
+          const mongoAssignedTeams = await Team.find({ mentorId: mUser._id });
+          for (const mt of mongoAssignedTeams) {
+            db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ? OR name = ?').run(mentorId, mt._id.toString(), mt.name);
+          }
+        }
+      } catch (mErr) {
+        console.warn('[MongoDB mentor sync notice]', mErr);
+      }
     }
 
     // 1. Assigned Teams
@@ -18,9 +43,9 @@ export const getMentorDashboard = async (req: AuthenticatedRequest, res: Respons
       FROM teams t
       LEFT JOIN projects p ON t.project_id = p.id
       LEFT JOIN users u ON t.leader_id = u.id
-      WHERE t.mentor_id = ? AND t.status = 'active'
+      WHERE (t.mentor_id = ? OR t.mentor_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)) AND t.status = 'active'
       ORDER BY t.name ASC
-    `).all(mentorId) as any[];
+    `).all(mentorId, mentorEmail) as any[];
 
     const teamIds = teams.map((t) => t.id);
 
@@ -170,6 +195,27 @@ export const getMentorDashboard = async (req: AuthenticatedRequest, res: Respons
 export const getMentorTeams = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mentorId = req.user?.id || '';
+    const mentorEmail = (req.user?.email || '').toLowerCase();
+
+    // Sync from MongoDB Atlas if connected
+    if (mongoose.connection.readyState === 1) {
+      try {
+        let mUser = null;
+        if (mongoose.Types.ObjectId.isValid(mentorId)) {
+          mUser = await User.findById(mentorId);
+        }
+        if (!mUser && mentorEmail) {
+          mUser = await User.findOne({ email: mentorEmail });
+        }
+        if (mUser) {
+          const mongoAssignedTeams = await Team.find({ mentorId: mUser._id });
+          for (const mt of mongoAssignedTeams) {
+            db.prepare('UPDATE teams SET mentor_id = ? WHERE id = ? OR name = ?').run(mentorId, mt._id.toString(), mt.name);
+          }
+        }
+      } catch {}
+    }
+
     const teams = db.prepare(`
       SELECT t.id, t.name, t.year_cohort, t.department, t.status,
              p.id as project_id, p.title as project_title, p.description as project_description,
@@ -179,9 +225,9 @@ export const getMentorTeams = async (req: AuthenticatedRequest, res: Response): 
       FROM teams t
       LEFT JOIN projects p ON t.project_id = p.id
       LEFT JOIN users u ON t.leader_id = u.id
-      WHERE t.mentor_id = ?
+      WHERE (t.mentor_id = ? OR t.mentor_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE))
       ORDER BY t.name ASC
-    `).all(mentorId) as any[];
+    `).all(mentorId, mentorEmail) as any[];
 
     res.json({ success: true, count: teams.length, data: teams });
   } catch (error: any) {
@@ -193,6 +239,7 @@ export const getMentorTeamDetails = async (req: AuthenticatedRequest, res: Respo
   try {
     const { teamId } = req.params;
     const mentorId = req.user?.id || '';
+    const mentorEmail = (req.user?.email || '').toLowerCase();
 
     const team = db.prepare(`
       SELECT t.id, t.name, t.year_cohort, t.department, t.status, t.mentor_id,
@@ -210,7 +257,15 @@ export const getMentorTeamDetails = async (req: AuthenticatedRequest, res: Respo
       return;
     }
 
-    if (req.user?.role === 'mentor' && team.mentor_id !== mentorId) {
+    let isMentor = team.mentor_id === mentorId;
+    if (!isMentor && mentorEmail) {
+      const mRow = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(mentorEmail) as any;
+      if (mRow && team.mentor_id === mRow.id) {
+        isMentor = true;
+      }
+    }
+
+    if (req.user?.role === 'mentor' && !isMentor) {
       res.status(403).json({ success: false, message: 'Access denied: You are not assigned to this team' });
       return;
     }
@@ -301,6 +356,7 @@ export const getMentorTeamDetails = async (req: AuthenticatedRequest, res: Respo
 export const getMentorProjects = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mentorId = req.user?.id || '';
+    const mentorEmail = (req.user?.email || '').toLowerCase();
     const { search, status } = req.query;
 
     let query = `
@@ -310,9 +366,9 @@ export const getMentorProjects = async (req: AuthenticatedRequest, res: Response
       FROM projects p
       JOIN teams t ON t.project_id = p.id
       LEFT JOIN users u ON t.leader_id = u.id
-      WHERE t.mentor_id = ?
+      WHERE (t.mentor_id = ? OR t.mentor_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE))
     `;
-    const params: any[] = [mentorId];
+    const params: any[] = [mentorId, mentorEmail];
 
     if (search) {
       query += ` AND (p.title LIKE ? OR p.description LIKE ? OR t.name LIKE ?)`;

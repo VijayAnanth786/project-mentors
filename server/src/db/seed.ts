@@ -28,26 +28,38 @@ export const runSeed = async (forceClean = false) => {
     } catch {}
   }
 
-  // Ensure base accounts exist
-  const insertUser = db.prepare(`
-    INSERT OR REPLACE INTO users (id, name, email, password_hash, role, status, avatar, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  // Safe Upsert helper to prevent SQLite cascade deletes of teams/projects
+  const upsertUser = (id: string, name: string, email: string, passwordHash: string, role: string, status: string, avatar: string, createdAt: string) => {
+    const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email) as any;
+    if (existing) {
+      db.prepare(`
+        UPDATE users 
+        SET name = ?, password_hash = ?, role = ?, status = ?, avatar = ?
+        WHERE id = ?
+      `).run(name, passwordHash, role, status, avatar, existing.id);
+      return existing.id;
+    } else {
+      db.prepare(`
+        INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, email, passwordHash, role, status, avatar, createdAt);
+      return id;
+    }
+  };
 
   const insertMentorProfile = db.prepare(`
-    INSERT OR REPLACE INTO mentor_profiles (id, user_id, department, title, bio, phone, created_at)
+    INSERT OR IGNORE INTO mentor_profiles (id, user_id, department, title, bio, phone, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertStudentProfile = db.prepare(`
-    INSERT OR REPLACE INTO student_profiles (id, user_id, department, year_cohort, roll_number, created_at)
+    INSERT OR IGNORE INTO student_profiles (id, user_id, department, year_cohort, roll_number, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   // 1. Admin Account (Primary: admin@gmail.com, Fallback: admin@college.edu)
-  const adminId = 'usr_admin_1';
-  insertUser.run(
-    adminId,
+  upsertUser(
+    'usr_admin_1',
     'Administrator',
     'admin@gmail.com',
     defaultPassword,
@@ -56,7 +68,7 @@ export const runSeed = async (forceClean = false) => {
     'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80',
     now
   );
-  insertUser.run(
+  upsertUser(
     'usr_admin_edu',
     'Administrator',
     'admin@college.edu',
@@ -69,7 +81,7 @@ export const runSeed = async (forceClean = false) => {
 
   // 2. Mentor Account (Primary: vetri@gmail.com, Fallback: vetri@college.edu)
   const vetriId = 'usr_mentor_vetri';
-  insertUser.run(
+  upsertUser(
     vetriId,
     'Dr. Vetri Chelvan',
     'vetri@gmail.com',
@@ -79,7 +91,7 @@ export const runSeed = async (forceClean = false) => {
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
     now
   );
-  insertUser.run(
+  upsertUser(
     'usr_mentor_vetri_edu',
     'Dr. Vetri Chelvan',
     'vetri@college.edu',
@@ -101,7 +113,7 @@ export const runSeed = async (forceClean = false) => {
 
   // 3. Student Account (Primary: vijay@gmail.com, Fallback: vijay@college.edu)
   const vijayId = 'usr_s_vijay';
-  insertUser.run(
+  upsertUser(
     vijayId,
     'Vijay Ananth R S',
     'vijay@gmail.com',
@@ -111,7 +123,7 @@ export const runSeed = async (forceClean = false) => {
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
     now
   );
-  insertUser.run(
+  upsertUser(
     'usr_s_vijay_edu',
     'Vijay Ananth R S',
     'vijay@college.edu',
