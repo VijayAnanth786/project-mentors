@@ -12,9 +12,8 @@ export const MentorDashboardView: React.FC = () => {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
   // In-Dashboard Temporary Password Update State
-  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(
-    Boolean((currentUser as any)?.mustChangePassword)
-  );
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(false);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordUpdating, setPasswordUpdating] = useState(false);
@@ -23,8 +22,12 @@ export const MentorDashboardView: React.FC = () => {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
-      setPasswordError('New password must be at least 6 characters long.');
+    if (!currentPassword) {
+      setPasswordError('Enter your current password.');
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters long.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -35,8 +38,9 @@ export const MentorDashboardView: React.FC = () => {
     setPasswordUpdating(true);
     try {
       const res = await api.auth.changePassword({
-        currentPassword: '',
-        newPassword: newPassword.trim()
+        currentPassword,
+        newPassword,
+        confirmPassword
       });
       if (res.success) {
         setPasswordSuccess(true);
@@ -125,12 +129,20 @@ export const MentorDashboardView: React.FC = () => {
             </div>
           ) : (
             <form onSubmit={handleUpdatePassword} className="space-y-3">
+              <input
+                type="password"
+                required
+                placeholder="Current Password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs bg-white border border-amber-300 rounded-xl font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <input
                     type="password"
                     required
-                    placeholder="New Permanent Password (min. 6 chars)"
+                    placeholder="New Permanent Password (min. 8 chars)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs bg-white border border-amber-300 rounded-xl font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"

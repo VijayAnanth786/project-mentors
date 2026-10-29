@@ -12,6 +12,9 @@ export interface User {
   college?: string;
   rollNumber?: string;
   teamRole?: 'Team Leader' | 'Member';
+  mustChangePassword?: boolean;
+  temporaryPasswordExpiresAt?: string | null;
+  status?: string;
 }
 
 export type ProjectStatus = 'ON_TRACK' | 'NEEDS_ATTENTION' | 'DELAYED' | 'COMPLETED';

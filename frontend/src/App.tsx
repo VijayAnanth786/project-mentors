@@ -30,8 +30,23 @@ import {
 } from './views/AdminPages';
 import { AdminDashboardView } from './views/AdminDashboardView';
 
+const roleHome = (role: string): string => {
+  if (role === 'admin') return '/admin/dashboard';
+  if (role === 'mentor') return '/mentor/dashboard';
+  return '/student/dashboard';
+};
+
+const viewRole = (view: string): 'admin' | 'mentor' | 'student' | null => {
+  if (view.startsWith('admin_')) return 'admin';
+  if (view.startsWith('mentor_')) return 'mentor';
+  if (['home', 'my_team', 'project_details', 'submit_progress', 'analytics', 'timeline', 'reviews', 'notifications'].includes(view)) {
+    return 'student';
+  }
+  return null;
+};
+
 export const App: React.FC = () => {
-  const { activeView, setActiveView } = useApp();
+  const { activeView, setActiveView, currentUser } = useApp();
 
   React.useEffect(() => {
     const syncPath = () => {
@@ -67,6 +82,44 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', syncPath);
     return () => window.removeEventListener('popstate', syncPath);
   }, [setActiveView]);
+
+  // Route-level authorization. The server remains authoritative; this guard
+  // prevents a stale localStorage role from rendering another role's screens.
+  React.useEffect(() => {
+    const token = localStorage.getItem('pm_auth_token');
+    const pathname = window.location.pathname;
+    const role = String(currentUser?.role || '').toLowerCase();
+
+    if (!token) {
+      if (pathname !== '/login') {
+        window.history.replaceState({}, '', '/login');
+        setActiveView('login');
+      }
+      return;
+    }
+
+    if (currentUser?.mustChangePassword) {
+      if (pathname !== '/login') {
+        window.history.replaceState({}, '', '/login');
+      }
+      setActiveView('login');
+      return;
+    }
+
+    if (pathname === '/login' || pathname === '/' || pathname === '') {
+      const target = roleHome(role);
+      window.history.replaceState({}, '', target);
+      setActiveView(pathToView[target] || 'home');
+      return;
+    }
+
+    const requiredRole = viewRole(activeView);
+    if (requiredRole && requiredRole !== role) {
+      const target = roleHome(role);
+      window.history.replaceState({}, '', target);
+      setActiveView(pathToView[target] || 'home');
+    }
+  }, [activeView, currentUser, setActiveView]);
 
   if (activeView === 'login') {
     return <LoginView />;

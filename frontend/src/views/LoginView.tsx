@@ -45,7 +45,7 @@ const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' })
 );
 
 export const LoginView: React.FC = () => {
-  const { login, googleLogin, setActiveView, showToast, setCurrentUser } = useApp();
+  const { currentUser, login, applySession, googleLogin, setActiveView, showToast, setCurrentUser } = useApp();
 
   // Mode: 'login' | 'register' | 'change_password'
   const [mode, setMode] = useState<'login' | 'register' | 'change_password'>('login');
@@ -78,6 +78,16 @@ export const LoginView: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [pendingUser, setPendingUser] = useState<any | null>(null);
+  const [pendingExpiry, setPendingExpiry] = useState<string | null>(null);
+
+  // A reload while a temporary password is still active must return to the
+  // forced password-change screen, never to a dashboard.
+  useEffect(() => {
+    if (currentUser?.mustChangePassword) {
+      setPendingUser(currentUser);
+      setMode('change_password');
+    }
+  }, [currentUser]);
 
   // Google OAuth Client ID
   const GOOGLE_CLIENT_ID =
@@ -213,9 +223,21 @@ export const LoginView: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await login({ email: email.trim(), password: password.trim() });
+      const result = await login({ email: email.trim(), password });
       if (!result.success) {
         setSubmitError(result.message || 'Invalid email or password.');
+        return;
+      }
+
+      if (result.mustChangePassword) {
+        setPendingUser(result.user || null);
+        setPendingExpiry(result.temporaryPasswordExpiresAt || null);
+        setCurrentPassword(password);
+        setNewPassword('');
+        setConfirmNewPassword('');
+        setMode('change_password');
+        setSuccessNotice('Sign-in confirmed. Set a permanent password to open your dashboard.');
+        setPassword('');
       }
     } catch (err: any) {
       if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK' || !err?.response) {
@@ -299,8 +321,8 @@ export const LoginView: React.FC = () => {
       return;
     }
 
-    if (!newPassword || newPassword.length < 6) {
-      setSubmitError('New password must be at least 6 characters long.');
+    if (!newPassword || newPassword.length < 8) {
+      setSubmitError('New password must be at least 8 characters long.');
       return;
     }
 
@@ -320,25 +342,37 @@ export const LoginView: React.FC = () => {
     try {
       const res = await api.auth.changePassword({
         currentPassword,
-        newPassword
+        newPassword,
+        confirmPassword: confirmNewPassword
       });
 
       if (res.success) {
-        showToast('Password updated successfully! Welcome to your dashboard.', 'success');
-
-        if (pendingUser) {
-          const updatedUser = { ...pendingUser, mustChangePassword: false };
+        const updatedUser = res.user || { ...(pendingUser || currentUser), mustChangePassword: false };
+        if (res.token) {
+          applySession(updatedUser, res.token);
+        } else {
           setCurrentUser(updatedUser);
           localStorage.setItem('pm_user', JSON.stringify(updatedUser));
         }
 
-        const role = (pendingUser?.role || '').toLowerCase();
+        showToast('Password updated successfully! Welcome to your dashboard.', 'success');
+        setMode('login');
+        setPendingUser(null);
+        setPendingExpiry(null);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+
+        const role = String(updatedUser.role || '').toLowerCase();
         const targetPath = role === 'admin' ? '/admin/dashboard' : role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard';
         window.history.pushState({}, '', targetPath);
 
         if (role === 'admin') setActiveView('admin_dashboard');
         else if (role === 'mentor') setActiveView('mentor_dashboard');
-        else setActiveView('home');
+        else {
+          setActiveView('home');
+          window.dispatchEvent(new Event('session:changed'));
+        }
       } else {
         setSubmitError(res.message || 'Password update failed.');
       }
@@ -454,6 +488,22 @@ export const LoginView: React.FC = () => {
               <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <span>{successNotice}</span>
+              </div>
+            )}
+
+            {mode === 'change_password' && (
+              <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs font-medium space-y-1">
+                <div>
+                  Signing in as <strong>{pendingUser?.email || 'your account'}</strong>.
+                </div>
+                <div className="text-indigo-600">
+                  {pendingExpiry
+                    ? `This temporary password expires ${new Date(pendingExpiry).toLocaleString()}.`
+                    : 'This temporary password is single-use.'}
+                </div>
+                <div className="text-indigo-600">
+                  Choose a permanent password of at least 8 characters. You cannot open a dashboard until it is set.
+                </div>
               </div>
             )}
 
@@ -661,7 +711,7 @@ export const LoginView: React.FC = () => {
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Current Temporary Password"
+                  placeholder="Current Password"
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                 />
 
@@ -671,7 +721,7 @@ export const LoginView: React.FC = () => {
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="New Secure Password (min. 6 chars)"
+                    placeholder="New Secure Password (min. 8 chars)"
                     className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 pr-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                   />
                   <button

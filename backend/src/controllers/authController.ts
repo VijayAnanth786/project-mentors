@@ -1,47 +1,134 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
+import crypto from 'crypto';
 import { User } from '../models/User';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
-import { connectDB } from '../config/db';
+import { useMongo } from '../config/storageMode';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_TEMP_ATTEMPTS = Number(process.env.TEMP_PASSWORD_MAX_ATTEMPTS || 5);
+
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.trim().length > 0) return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production.');
+  }
+  return 'dev_only_jwt_secret_not_for_production';
+};
+
+const signToken = (user: any): string => {
+  return jwt.sign(
+    {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      year: user.year,
+      college: user.college
+    },
+    getJwtSecret(),
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
+  );
+};
+
+const redirectForRole = (role: string): string => {
+  if (role === 'admin') return '/admin/dashboard';
+  if (role === 'mentor') return '/mentor/dashboard';
+  return '/student/dashboard';
+};
+
+const readSqliteProfile = (userId: string) => {
+  let department = 'Computer Science';
+  let year = '3rd Year';
+  try {
+    const mentor = db.prepare('SELECT department FROM mentor_profiles WHERE user_id = ?').get(userId) as any;
+    const student = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(userId) as any;
+    department = mentor?.department || student?.department || department;
+    year = student?.year_cohort || year;
+  } catch {}
+  return { department, year };
+};
+
+const fromSqlite = (row: any) => {
+  if (!row) return null;
+  const profile = readSqliteProfile(row.id);
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: String(row.role || 'student').toLowerCase(),
+    status: String(row.status || 'active').toLowerCase(),
+    department: profile.department,
+    year: profile.year,
+    college: 'College of Engineering & Technology',
+    avatar: row.avatar || undefined,
+    mustChangePassword: Boolean(row.must_change_password),
+    tempPasswordExpiresAt: row.temp_password_expires_at || null,
+    tempPasswordAttempts: Number(row.temp_password_attempts || 0)
+  };
+};
+
+const fromMongo = (userDoc: any) => ({
+  id: userDoc._id.toString(),
+  name: userDoc.name,
+  email: userDoc.email,
+  role: String(userDoc.role).toLowerCase(),
+  status: String(userDoc.status).toLowerCase(),
+  department: userDoc.department || 'Computer Science',
+  year: userDoc.year || '3rd Year',
+  college: userDoc.college || 'College of Engineering & Technology',
+  avatar: userDoc.avatar || undefined,
+  mustChangePassword: Boolean(userDoc.mustChangePassword),
+  tempPasswordExpiresAt: userDoc.tempPasswordExpiresAt
+    ? new Date(userDoc.tempPasswordExpiresAt).toISOString()
+    : null,
+  tempPasswordAttempts: Number(userDoc.tempPasswordAttempts || 0)
+});
+
+const isExpired = (value: string | Date | null | undefined): boolean => {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) && Date.now() > time;
+};
+
+const isLocked = (user: any): boolean =>
+  Boolean(user.mustChangePassword) && Number(user.tempPasswordAttempts || 0) >= MAX_TEMP_ATTEMPTS;
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password, department, year, college } = req.body;
 
-    // Strict input validation
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
       res.status(400).json({ success: false, message: 'Name is required (at least 2 characters).' });
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
-      res.status(400).json({ success: false, message: 'Please provide a valid email address (e.g. yourname@gmail.com).' });
+    if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email.trim())) {
+      res.status(400).json({ success: false, message: 'Please provide a valid email address.' });
       return;
     }
 
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
       return;
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(password, 10);
+    const avatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80';
+    const normalizedDepartment = typeof department === 'string' && department.trim() ? department.trim() : 'Computer Science';
+    const normalizedYear = typeof year === 'string' && year.trim() ? year.trim() : '1st Year';
 
-    // Check if MongoDB Atlas is connected
-    const isMongoReady = mongoose.connection.readyState === 1;
-
-    if (isMongoReady) {
+    if (useMongo()) {
       const existing = await User.findOne({ email: normalizedEmail });
       if (existing) {
         res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
         return;
       }
-
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(password, salt);
 
       const newUser = await User.create({
         name: name.trim(),
@@ -49,59 +136,38 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         passwordHash,
         role: 'STUDENT',
         status: 'ACTIVE',
-        department: department?.trim() || 'Computer Science',
-        year: year?.trim() || '1st Year',
-        college: college?.trim() || 'College of Engineering & Technology',
-        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`,
+        department: normalizedDepartment,
+        year: normalizedYear,
+        college: typeof college === 'string' && college.trim() ? college.trim() : 'College of Engineering & Technology',
+        avatar,
         mustChangePassword: false
       });
-
-      // Also persist to SQLite so SQLite-based queries immediately recognize the user
-      try {
-        db.prepare(`
-          INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
-          VALUES (?, ?, ?, ?, 'student', 'active', ?)
-        `).run(newUser._id.toString(), name.trim(), normalizedEmail, passwordHash, newUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80');
-
-        db.prepare(`
-          INSERT OR IGNORE INTO student_profiles (id, user_id, department, year_cohort)
-          VALUES (?, ?, ?, ?)
-        `).run(`sp_${newUser._id}`, newUser._id.toString(), department?.trim() || 'Computer Science', year?.trim() || '1st Year');
-      } catch (sqlErr) {
-        console.warn('[SQLite dual-write notice]', sqlErr);
-      }
-
-      const userObj = newUser.toJSON();
 
       res.status(201).json({
         success: true,
         message: 'Student account registered successfully. Please sign in.',
-        user: userObj
+        user: fromMongo(newUser)
       });
       return;
     }
 
-    // Seamless Local Fallback when Atlas connection is pending whitelist
-    const existingLocal = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail) as any;
+    const existingLocal = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
     if (existingLocal) {
       res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
       return;
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
-    const newId = `usr_s_${Date.now()}`;
-
+    const newId = `usr_s_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     db.prepare(`
       INSERT INTO users (id, name, email, password_hash, role, status, avatar)
       VALUES (?, ?, ?, ?, 'student', 'active', ?)
-    `).run(newId, name.trim(), normalizedEmail, passwordHash, 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80');
+    `).run(newId, name.trim(), normalizedEmail, passwordHash, avatar);
 
     try {
       db.prepare(`
         INSERT INTO student_profiles (id, user_id, department, year_cohort)
         VALUES (?, ?, ?, ?)
-      `).run(`sp_${Date.now()}`, newId, department?.trim() || 'Computer Science', year?.trim() || '1st Year');
+      `).run(`sp_${newId}`, newId, normalizedDepartment, normalizedYear);
     } catch {}
 
     res.status(201).json({
@@ -113,18 +179,18 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         email: normalizedEmail,
         role: 'student',
         status: 'active',
-        department: department?.trim() || 'Computer Science',
-        year: year?.trim() || '1st Year',
+        department: normalizedDepartment,
+        year: normalizedYear,
         mustChangePassword: false
       }
     });
   } catch (error: any) {
-    if (error.code === 11000) {
+    if (error?.code === 11000) {
       res.status(409).json({ success: false, message: 'An account with this email address already exists.' });
       return;
     }
     console.error('[Registration Error]', error);
-    res.status(500).json({ success: false, message: error.message || 'Registration failed' });
+    res.status(500).json({ success: false, message: 'Registration failed.' });
   }
 };
 
@@ -132,169 +198,113 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       res.status(400).json({ success: false, message: 'Email and password are required.' });
       return;
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
-    if (mongoose.connection.readyState !== 1) {
-      try {
-        await connectDB();
-      } catch {}
-    }
-    const isMongoReady = mongoose.connection.readyState === 1;
+    const normalizedEmail = email.trim().toLowerCase();
+    let account: any = null;
+    let passwordHash = '';
+    let mongoDoc: any = null;
+    let sqliteRow: any = null;
 
-    let userObj: any = null;
-    let passwordHash: string | null = null;
-    let mustChangePassword = false;
-
-    // 1. Try MongoDB Atlas if connected
-    if (isMongoReady) {
-      const userDoc = await User.findOne({ email: normalizedEmail }).select('+passwordHash');
-      if (userDoc) {
-        if (userDoc.status === 'BLOCKED') {
-          res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
-          return;
-        }
-        let isMatch = await userDoc.comparePassword(String(password));
-        if (!isMatch && String(password).trim() !== String(password)) {
-          isMatch = await userDoc.comparePassword(String(password).trim());
-        }
-        if (!isMatch) {
-          res.status(401).json({ success: false, message: 'Invalid email or password.' });
-          return;
-        }
-        userObj = {
-          id: userDoc._id.toString(),
-          name: userDoc.name,
-          email: userDoc.email,
-          role: userDoc.role.toLowerCase(),
-          department: userDoc.department || 'Computer Science',
-          year: userDoc.year || '3rd Year',
-          college: userDoc.college || 'College of Engineering & Technology',
-          avatar: userDoc.avatar
-        };
-        mustChangePassword = userDoc.mustChangePassword;
-
-        // Auto-heal SQLite cache if missing
-        try {
-          const sqlCheck = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail);
-          if (!sqlCheck) {
-            db.prepare(`
-              INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              userDoc._id.toString(),
-              userDoc.name,
-              userDoc.email,
-              userDoc.passwordHash,
-              userDoc.role.toLowerCase(),
-              userDoc.status === 'ACTIVE' ? 'active' : 'inactive',
-              userDoc.avatar
-            );
-          }
-        } catch {}
+    if (useMongo()) {
+      mongoDoc = await User.findOne({ email: normalizedEmail }).select('+passwordHash');
+      if (mongoDoc) {
+        account = fromMongo(mongoDoc);
+        passwordHash = mongoDoc.passwordHash;
+      }
+    } else {
+      sqliteRow = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+      if (sqliteRow) {
+        account = fromSqlite(sqliteRow);
+        passwordHash = sqliteRow.password_hash;
       }
     }
 
-    // 2. Try Local Fallback Store
-    if (!userObj) {
-      const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
-      if (row) {
-        if (row.status === 'inactive' || row.status === 'blocked') {
-          res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
-          return;
-        }
-
-        let isMatch = await bcrypt.compare(String(password), row.password_hash);
-        if (!isMatch && String(password).trim() !== String(password)) {
-          isMatch = await bcrypt.compare(String(password).trim(), row.password_hash);
-        }
-        if (!isMatch) {
-          res.status(401).json({ success: false, message: 'Invalid email or password.' });
-          return;
-        }
-
-        let dept = 'Computer Science';
-        let yr = '3rd Year';
-        try {
-          const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id) as any;
-          if (sp) {
-            dept = sp.department || dept;
-            yr = sp.year_cohort || yr;
-          }
-        } catch {}
-
-        userObj = {
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          role: row.role.toLowerCase(),
-          department: dept,
-          year: yr,
-          college: 'College of Engineering & Technology',
-          avatar: row.avatar
-        };
-        mustChangePassword = false;
-
-        // Auto-heal MongoDB if connected
-        if (isMongoReady) {
-          try {
-            await User.create({
-              name: row.name,
-              email: row.email,
-              passwordHash: row.password_hash,
-              role: row.role.toUpperCase(),
-              status: row.status === 'active' ? 'ACTIVE' : 'BLOCKED',
-              department: dept,
-              year: yr,
-              avatar: row.avatar,
-              mustChangePassword: false
-            });
-          } catch {}
-        }
-      }
-    }
-
-    if (!userObj) {
-      res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    if (!account || !passwordHash) {
+      res.status(401).json({ success: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
       return;
     }
 
-    const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_replace_in_production';
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+    if (account.status === 'blocked' || account.status === 'inactive') {
+      res.status(403).json({ success: false, code: 'ACCOUNT_BLOCKED', message: 'Your account has been blocked. Please contact an administrator.' });
+      return;
+    }
 
-    const token = jwt.sign(
-      {
-        id: userObj.id,
-        name: userObj.name,
-        email: userObj.email,
-        role: userObj.role,
-        department: userObj.department,
-        year: userObj.year,
-        college: userObj.college
-      },
-      secret,
-      { expiresIn: (expiresIn as any) || '7d' }
-    );
+    if (account.mustChangePassword) {
+      if (isExpired(account.tempPasswordExpiresAt)) {
+        res.status(403).json({
+          success: false,
+          code: 'TEMP_PASSWORD_EXPIRED',
+          message: 'Your temporary password has expired. Ask an administrator to issue a new one.'
+        });
+        return;
+      }
+      if (isLocked(account)) {
+        res.status(403).json({
+          success: false,
+          code: 'TEMP_PASSWORD_LOCKED',
+          message: 'Too many failed attempts with this temporary password. Ask an administrator to issue a new one.'
+        });
+        return;
+      }
+    }
 
-    const redirectUrl =
-      userObj.role === 'admin'
-        ? '/admin/dashboard'
-        : userObj.role === 'mentor'
-        ? '/mentor/dashboard'
-        : '/student/dashboard';
+    const isMatch = await bcrypt.compare(password, passwordHash);
+    if (!isMatch) {
+      if (account.mustChangePassword) {
+        const attempts = Number(account.tempPasswordAttempts || 0) + 1;
+        if (mongoDoc) {
+          mongoDoc.tempPasswordAttempts = attempts;
+          await mongoDoc.save();
+        } else if (sqliteRow) {
+          db.prepare('UPDATE users SET temp_password_attempts = ? WHERE id = ?').run(attempts, sqliteRow.id);
+        }
+        if (attempts >= MAX_TEMP_ATTEMPTS) {
+          res.status(403).json({
+            success: false,
+            code: 'TEMP_PASSWORD_LOCKED',
+            message: 'Too many failed attempts with this temporary password. Ask an administrator to issue a new one.'
+          });
+          return;
+        }
+      }
+      res.status(401).json({ success: false, code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
+      return;
+    }
+
+    if (account.mustChangePassword && isExpired(account.tempPasswordExpiresAt)) {
+      res.status(403).json({
+        success: false,
+        code: 'TEMP_PASSWORD_EXPIRED',
+        message: 'Your temporary password has expired. Ask an administrator to issue a new one.'
+      });
+      return;
+    }
+
+    // Successful authentication: reset the temporary attempt counter and record login.
+    if (mongoDoc) {
+      mongoDoc.tempPasswordAttempts = 0;
+      mongoDoc.lastLoginAt = new Date();
+      await mongoDoc.save();
+    } else if (sqliteRow) {
+      db.prepare('UPDATE users SET temp_password_attempts = 0, last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(sqliteRow.id);
+    }
+
+    const token = signToken(account);
 
     res.json({
       success: true,
       token,
-      redirectUrl,
-      mustChangePassword,
-      user: userObj
+      redirectUrl: account.mustChangePassword ? '/login' : redirectForRole(account.role),
+      mustChangePassword: Boolean(account.mustChangePassword),
+      temporaryPasswordExpiresAt: account.tempPasswordExpiresAt,
+      user: account
     });
   } catch (error: any) {
-    console.error('[Login Error]', error);
+    console.error('[Login Error]', error?.message || error);
     res.status(500).json({ success: false, message: 'Internal server authentication error.' });
   }
 };
@@ -306,216 +316,164 @@ export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<v
       return;
     }
 
-    const isMongoReady = mongoose.connection.readyState === 1;
-
-    if (isMongoReady) {
+    let account: any = null;
+    if (useMongo()) {
       const user = await User.findById(req.user.id);
-      if (user) {
-        if (user.status === 'BLOCKED') {
-          res.status(403).json({ success: false, message: 'Account is blocked.' });
-          return;
-        }
-        res.json({
-          success: true,
-          user: {
-            ...user.toJSON(),
-            role: user.role.toLowerCase(),
-            department: user.department || 'Computer Science',
-            year: user.year || '3rd Year',
-            college: user.college || 'College of Engineering & Technology'
-          }
-        });
-        return;
-      }
+      if (user) account = fromMongo(user);
+    } else {
+      const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) as any;
+      if (row) account = fromSqlite(row);
     }
 
-    // Local fallback
-    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) as any;
-    if (row) {
-      let dept = 'Computer Science';
-      let yr = '3rd Year';
-      try {
-        const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id) as any;
-        if (sp) {
-          dept = sp.department || dept;
-          yr = sp.year_cohort || yr;
-        }
-      } catch {}
+    if (!account) {
+      res.status(401).json({ success: false, message: 'User not found or session invalid.' });
+      return;
+    }
 
-      res.json({
-        success: true,
-        user: {
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          role: row.role.toLowerCase(),
-          department: dept,
-          year: yr,
-          college: 'College of Engineering & Technology',
-          avatar: row.avatar
-        }
-      });
+    if (account.status === 'blocked' || account.status === 'inactive') {
+      res.status(403).json({ success: false, code: 'ACCOUNT_BLOCKED', message: 'Account is blocked.' });
       return;
     }
 
     res.json({
       success: true,
       user: {
-        id: req.user.id,
-        name: req.user.name,
-        email: req.user.email,
-        role: req.user.role.toLowerCase(),
-        department: req.user.department || 'Computer Science',
-        year: req.user.year || '3rd Year',
-        college: req.user.college || 'College of Engineering & Technology',
-        avatar: req.user.avatar
+        ...account,
+        tempPasswordAttempts: undefined
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to load the current session.' });
   }
 };
 
 export const changePassword = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.id;
-    const userEmail = (req.user?.email || '').toLowerCase();
-    const { currentPassword, newPassword } = req.body;
-
-    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
-      res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Not authenticated.' });
       return;
     }
 
-    if (mongoose.connection.readyState !== 1) {
-      try {
-        await connectDB();
-      } catch {}
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      res.status(400).json({ success: false, message: 'Current password is required.' });
+      return;
     }
-    const isMongoReady = mongoose.connection.readyState === 1;
-    let verified = false;
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      res.status(400).json({ success: false, message: 'New password must be at least 8 characters long.' });
+      return;
+    }
+    if (confirmPassword !== undefined && confirmPassword !== newPassword) {
+      res.status(400).json({ success: false, message: 'New passwords do not match.' });
+      return;
+    }
+    if (newPassword === currentPassword) {
+      res.status(400).json({ success: false, message: 'New password must be different from the current password.' });
+      return;
+    }
 
-    // 1. Check and update in MongoDB Atlas if connected
-    if (isMongoReady) {
-      try {
-        let user = null;
-        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-          user = await User.findById(userId).select('+passwordHash');
-        }
-        if (!user && userEmail) {
-          user = await User.findOne({ email: userEmail }).select('+passwordHash');
-        }
+    const newHash = await bcrypt.hash(newPassword, 10);
 
-        if (user) {
-          // If not in temporary password reset mode, verify current password
-          if (!user.mustChangePassword) {
-            if (!currentPassword) {
-              res.status(400).json({ success: false, message: 'Current password is required.' });
-              return;
-            }
-            let isMatch = await user.comparePassword(String(currentPassword));
-            if (!isMatch && String(currentPassword).trim() !== String(currentPassword)) {
-              isMatch = await user.comparePassword(String(currentPassword).trim());
-            }
-            if (!isMatch) {
-              res.status(400).json({ success: false, message: 'Current password is incorrect.' });
-              return;
-            }
-          }
-
-          const salt = await bcrypt.genSalt(10);
-          user.passwordHash = await bcrypt.hash(newPassword.trim(), salt);
-          user.mustChangePassword = false;
-          await user.save();
-          verified = true;
-        }
-      } catch (mongoErr) {
-        console.warn('[ChangePassword Mongo Error]', mongoErr);
+    if (useMongo()) {
+      const user = await User.findById(req.user.id).select('+passwordHash');
+      if (!user) {
+        res.status(404).json({ success: false, message: 'User account not found.' });
+        return;
       }
-    }
-
-    // 2. Check and synchronize with SQLite store
-    try {
-      const row = db.prepare('SELECT * FROM users WHERE id = ? OR email = ? COLLATE NOCASE').get(userId, userEmail) as any;
-      if (row) {
-        if (!verified && !row.must_change_password) {
-          if (!currentPassword) {
-            res.status(400).json({ success: false, message: 'Current password is required.' });
-            return;
-          }
-          let isMatch = await bcrypt.compare(String(currentPassword), row.password_hash);
-          if (!isMatch && String(currentPassword).trim() !== String(currentPassword)) {
-            isMatch = await bcrypt.compare(String(currentPassword).trim(), row.password_hash);
-          }
-          if (!isMatch) {
-            res.status(400).json({ success: false, message: 'Current password is incorrect.' });
-            return;
-          }
-          verified = true;
-        }
-        const salt = await bcrypt.genSalt(10);
-        const newHash = await bcrypt.hash(newPassword.trim(), salt);
-        try {
-          db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(newHash, row.id);
-        } catch {
-          db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, row.id);
-        }
-        verified = true;
+      if (user.mustChangePassword && isExpired(user.tempPasswordExpiresAt)) {
+        res.status(403).json({ success: false, code: 'TEMP_PASSWORD_EXPIRED', message: 'The temporary password has expired.' });
+        return;
       }
-    } catch (sqlErr) {
-      console.warn('[ChangePassword SQLite Error]', sqlErr);
+      const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!matches) {
+        res.status(400).json({ success: false, code: 'CURRENT_PASSWORD_INCORRECT', message: 'Current password is incorrect.' });
+        return;
+      }
+
+      user.passwordHash = newHash;
+      user.mustChangePassword = false;
+      user.tempPasswordAttempts = 0;
+      user.tempPasswordConsumedAt = new Date();
+      user.passwordChangedAt = new Date();
+      await user.save();
+
+      const account = fromMongo(user);
+      res.json({
+        success: true,
+        message: 'Password updated successfully. You now have full access to your dashboard.',
+        token: signToken(account),
+        user: account
+      });
+      return;
     }
 
-    if (!verified) {
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id) as any;
+    if (!row) {
       res.status(404).json({ success: false, message: 'User account not found.' });
       return;
     }
+    if (row.must_change_password && isExpired(row.temp_password_expires_at)) {
+      res.status(403).json({ success: false, code: 'TEMP_PASSWORD_EXPIRED', message: 'The temporary password has expired.' });
+      return;
+    }
+
+    const matches = await bcrypt.compare(currentPassword, row.password_hash);
+    if (!matches) {
+      res.status(400).json({ success: false, code: 'CURRENT_PASSWORD_INCORRECT', message: 'Current password is incorrect.' });
+      return;
+    }
+
+    db.prepare(`
+      UPDATE users
+      SET password_hash = ?,
+          must_change_password = 0,
+          temp_password_attempts = 0,
+          temp_password_consumed_at = CURRENT_TIMESTAMP,
+          password_changed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newHash, row.id);
+
+    const updatedRow = db.prepare('SELECT * FROM users WHERE id = ?').get(row.id) as any;
+    const account = fromSqlite(updatedRow);
 
     res.json({
       success: true,
-      message: 'Password updated successfully. You now have full access to your dashboard.'
+      message: 'Password updated successfully. You now have full access to your dashboard.',
+      token: signToken(account),
+      user: account
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('[ChangePassword Error]', error?.message || error);
+    res.status(500).json({ success: false, message: 'Password update failed. Please try again.' });
   }
 };
 
 export const googleAuth = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { credential, accessToken, email, name, avatar, role } = req.body;
+    const { credential, accessToken, email, name, avatar } = req.body;
 
     let googleEmail = email;
     let googleName = name;
     let googleAvatar = avatar;
 
-    // 1. If Google ID token credential is provided, verify it with Google OAuth2 API
     if (credential && typeof credential === 'string') {
       try {
-        const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+        const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
         if (verifyRes.ok) {
           const payload = await verifyRes.json() as any;
           googleEmail = payload.email || googleEmail;
           googleName = payload.name || payload.given_name || googleName;
           googleAvatar = payload.picture || googleAvatar;
         } else {
-          // If tokeninfo returned error, attempt fallback decoding if standard JWT
-          const parts = credential.split('.');
-          if (parts.length === 3) {
-            const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-            if (decoded.email) {
-              googleEmail = decoded.email;
-              googleName = decoded.name || decoded.given_name || googleName;
-              googleAvatar = decoded.picture || googleAvatar;
-            }
-          }
+          res.status(401).json({ success: false, message: 'Google credential verification failed.' });
+          return;
         }
-      } catch (tokenErr) {
-        console.warn('[Google Token Verification Notice]', tokenErr);
+      } catch {
+        res.status(401).json({ success: false, message: 'Google credential verification failed.' });
+        return;
       }
-    }
-
-    // 2. If Google OAuth 2.0 access token is provided, verify via Google UserInfo API
-    if (accessToken && typeof accessToken === 'string') {
+    } else if (accessToken && typeof accessToken === 'string') {
       try {
         const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: `Bearer ${accessToken}` }
@@ -525,157 +483,96 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
           googleEmail = info.email || googleEmail;
           googleName = info.name || info.given_name || googleName;
           googleAvatar = info.picture || googleAvatar;
+        } else {
+          res.status(401).json({ success: false, message: 'Google access token verification failed.' });
+          return;
         }
-      } catch (userinfoErr) {
-        console.warn('[Google OAuth 2.0 UserInfo Notice]', userinfoErr);
+      } catch {
+        res.status(401).json({ success: false, message: 'Google access token verification failed.' });
+        return;
       }
+    } else {
+      res.status(400).json({ success: false, message: 'A Google credential or access token is required.' });
+      return;
     }
 
-    if (!googleEmail || typeof googleEmail !== 'string') {
+    if (!googleEmail || typeof googleEmail !== 'string' || !EMAIL_REGEX.test(googleEmail.trim())) {
       res.status(400).json({ success: false, message: 'Google account email could not be verified.' });
       return;
     }
 
     const normalizedEmail = googleEmail.trim().toLowerCase();
-    const isMongoReady = mongoose.connection.readyState === 1;
+    let account: any = null;
 
-    let userObj: any = null;
-
-    // 2. Check if user already exists in MongoDB
-    if (isMongoReady) {
+    if (useMongo()) {
       let userDoc = await User.findOne({ email: normalizedEmail });
-      if (userDoc) {
-        if (userDoc.status === 'BLOCKED') {
-          res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
-          return;
-        }
-        userObj = {
-          id: userDoc._id.toString(),
-          name: userDoc.name,
-          email: userDoc.email,
-          role: userDoc.role.toLowerCase(),
-          department: userDoc.department || 'Computer Science',
-          avatar: userDoc.avatar || googleAvatar
-        };
-      } else {
-        // Create new user in MongoDB
-        const randomSalt = await bcrypt.genSalt(10);
-        const randomHash = await bcrypt.hash(Math.random().toString(36) + Date.now(), randomSalt);
-        const assignedRoleEnum = role === 'mentor' ? 'MENTOR' : (normalizedEmail.includes('admin') || role === 'admin' ? 'ADMIN' : 'STUDENT');
-        const newUser = await User.create({
+      if (!userDoc) {
+        // New Google users are always students. Roles are never accepted from the client.
+        const randomHash = await bcrypt.hash(cryptoRandomPassword(), 10);
+        userDoc = await User.create({
           name: googleName?.trim() || normalizedEmail.split('@')[0],
           email: normalizedEmail,
           passwordHash: randomHash,
-          role: assignedRoleEnum,
+          role: 'STUDENT',
           status: 'ACTIVE',
           department: 'Computer Science',
           year: '1st Year',
           college: 'College of Engineering & Technology',
-          avatar: googleAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`,
+          avatar: googleAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
           mustChangePassword: false
         });
-
-        userObj = {
-          id: newUser._id.toString(),
-          name: newUser.name,
-          email: newUser.email,
-          role: newUser.role.toLowerCase(),
-          department: newUser.department,
-          avatar: newUser.avatar
-        };
       }
-    }
-
-    // 3. Harmonize with SQLite
-    try {
-      const existingRow = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail) as any;
-      if (existingRow) {
-        if (!userObj) {
-          if (existingRow.status === 'inactive' || existingRow.status === 'blocked') {
-            res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
-            return;
-          }
-          userObj = {
-            id: existingRow.id,
-            name: existingRow.name,
-            email: existingRow.email,
-            role: existingRow.role.toLowerCase(),
-            department: 'Computer Science',
-            avatar: existingRow.avatar || googleAvatar
-          };
+      if (String(userDoc.status).toLowerCase() === 'blocked') {
+        res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
+        return;
+      }
+      account = fromMongo(userDoc);
+    } else {
+      const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+      if (row) {
+        if (String(row.status).toLowerCase() === 'blocked' || String(row.status).toLowerCase() === 'inactive') {
+          res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
+          return;
         }
+        account = fromSqlite(row);
       } else {
-        // Insert into SQLite
-        const sqliteId = userObj?.id || `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const assignedRole = userObj?.role || (role === 'mentor' ? 'mentor' : (normalizedEmail.includes('admin') || role === 'admin' ? 'admin' : 'student'));
-        const assignedName = userObj?.name || googleName?.trim() || normalizedEmail.split('@')[0];
-        const assignedAvatar = userObj?.avatar || googleAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80`;
-
+        const id = `usr_google_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const randomHash = await bcrypt.hash(cryptoRandomPassword(), 10);
         db.prepare(`
           INSERT INTO users (id, name, email, password_hash, role, status, avatar, created_at)
-          VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, ?, 'student', 'active', ?, CURRENT_TIMESTAMP)
         `).run(
-          sqliteId,
-          assignedName,
+          id,
+          googleName?.trim() || normalizedEmail.split('@')[0],
           normalizedEmail,
-          'google_oauth_authenticated',
-          assignedRole,
-          assignedAvatar
+          randomHash,
+          googleAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80'
         );
-
-        if (!userObj) {
-          userObj = {
-            id: sqliteId,
-            name: assignedName,
-            email: normalizedEmail,
-            role: assignedRole,
-            department: 'Computer Science',
-            avatar: assignedAvatar
-          };
-        }
+        account = fromSqlite(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
       }
-    } catch (sqlErr) {
-      console.warn('[SQLite Google Auth Notice]', sqlErr);
     }
 
-    if (!userObj) {
+    if (!account) {
       res.status(500).json({ success: false, message: 'Failed to establish user session from Google authentication.' });
       return;
     }
 
-    const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_replace_in_production';
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-
-    const token = jwt.sign(
-      {
-        id: userObj.id,
-        name: userObj.name,
-        email: userObj.email,
-        role: userObj.role,
-        department: userObj.department
-      },
-      secret,
-      { expiresIn: (expiresIn as any) || '7d' }
-    );
-
-    const redirectUrl =
-      userObj.role === 'admin'
-        ? '/admin/dashboard'
-        : userObj.role === 'mentor'
-        ? '/mentor/dashboard'
-        : '/student/dashboard';
-
     res.json({
       success: true,
-      token,
-      redirectUrl,
-      mustChangePassword: false,
-      user: userObj
+      token: signToken(account),
+      redirectUrl: redirectForRole(account.role),
+      mustChangePassword: Boolean(account.mustChangePassword),
+      user: account
     });
   } catch (error: any) {
-    console.error('[Google Auth Error]', error);
+    console.error('[Google Auth Error]', error?.message || error);
     res.status(500).json({ success: false, message: 'Google authentication service encountered an error.' });
   }
+};
+
+const cryptoRandomPassword = (): string => {
+  // 32 hex characters, generated by the platform CSPRNG.
+  return crypto.randomBytes(16).toString('hex');
 };
 
 export const logout = async (req: Request, res: Response): Promise<void> => {

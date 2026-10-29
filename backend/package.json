@@ -14,7 +14,8 @@
     "admin:setup": "tsx src/scripts/createAdmin.ts",
     "test": "tsx test-integration.ts",
     "test:api": "tsx test-api-endpoints.ts",
-    "test:mongo": "node test-mongo.js"
+    "test:mongo": "node test-mongo.js",
+    "test:lifecycle": "tsx --test tests/lifecycle.test.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

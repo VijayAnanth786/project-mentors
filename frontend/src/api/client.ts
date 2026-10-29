@@ -64,7 +64,7 @@ export const api = {
       const res = await apiClient.post('/auth/register', payload);
       return res.data;
     },
-    changePassword: async (payload: { currentPassword: string; newPassword: string }) => {
+    changePassword: async (payload: { currentPassword: string; newPassword: string; confirmPassword?: string }) => {
       const res = await apiClient.post('/auth/change-password', payload);
       return res.data;
     },
@@ -165,6 +165,14 @@ export const api = {
     },
     updateMentorStatus: async (id: string, status: 'active' | 'inactive') => {
       const res = await apiClient.put(`/admin/mentors/${id}/status`, { status });
+      return res.data;
+    },
+    reissueMentorPassword: async (id: string) => {
+      const res = await apiClient.post(`/admin/mentors/${id}/temp-password`);
+      return res.data;
+    },
+    deleteMentor: async (id: string) => {
+      const res = await apiClient.delete(`/admin/mentors/${id}`);
       return res.data;
     },
     getTeams: async (params?: { search?: string; mentorFilter?: string; status?: string; page?: number; limit?: number }) => {
