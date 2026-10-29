@@ -34,7 +34,7 @@ import { pathToView } from '../components/navConfig';
 import { MentorTeamDetails } from './MentorTeamDetails';
 
 export const AdminDashboardView: React.FC = () => {
-  const { setActiveView, showToast, createMentor } = useApp();
+  const { setActiveView, showToast } = useApp();
 
   // Modals & Selection
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -128,14 +128,11 @@ export const AdminDashboardView: React.FC = () => {
       });
       showToast('Mentor account created successfully.', 'success');
       const responseData = res?.data || res;
-      setCreatedMentorData(responseData);
-      if (createMentor) {
-        createMentor({
-          name: trimmedName,
-          email: trimmedEmail,
-          password: responseData.temporaryPassword || 'TempPass123!'
-        });
+      if (!responseData?.temporaryPassword) {
+        setAddMentorError('The server did not return a temporary password. Please reissue credentials from the mentor directory.');
+        return;
       }
+      setCreatedMentorData(responseData);
       setNewMentorName('');
       setNewMentorEmail('');
       refetch();
@@ -514,7 +511,11 @@ export const AdminDashboardView: React.FC = () => {
                   {createdMentorData.temporaryPassword}
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  ⚠️ No invitation email was sent. Please copy and share this temporary password securely with the faculty mentor. The mentor will be prompted to set a personal password upon first sign-in.
+                  ⚠️ No invitation email was sent. Please copy and share this temporary password securely with the faculty mentor. It can be used once and expires{' '}
+                  {createdMentorData.temporaryPasswordExpiresAt
+                    ? new Date(createdMentorData.temporaryPasswordExpiresAt).toLocaleString()
+                    : 'after the configured validity period'}
+                  . The mentor must set a permanent password at first sign-in.
                 </p>
               </div>
             </div>

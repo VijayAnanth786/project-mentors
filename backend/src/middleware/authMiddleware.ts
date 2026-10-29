@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
 import { User, UserRole, UserStatus } from '../models/User';
 import { db } from '../db/database';
+import { useMongo } from '../config/storageMode';
 
 export interface AuthUser {
   id: string;
@@ -15,11 +15,45 @@ export interface AuthUser {
   college?: string;
   avatar?: string;
   mustChangePassword?: boolean;
+  tempPasswordExpiresAt?: string | null;
 }
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthUser;
 }
+
+const isBlockedStatus = (status: string): boolean => {
+  const normalized = String(status || '').toUpperCase();
+  return normalized === 'BLOCKED' || normalized === 'INACTIVE';
+};
+
+const readSqliteUser = (id: string) => {
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+  if (!row) return null;
+
+  let department = 'Computer Science';
+  let year = '3rd Year';
+  try {
+    const mentorProfile = db.prepare('SELECT department FROM mentor_profiles WHERE user_id = ?').get(row.id) as any;
+    const studentProfile = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id) as any;
+    department = mentorProfile?.department || studentProfile?.department || department;
+    year = studentProfile?.year_cohort || year;
+  } catch {}
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: String(row.role).toLowerCase(),
+    status: isBlockedStatus(row.status) ? 'blocked' : 'active',
+    department,
+    year,
+    college: 'College of Engineering & Technology',
+    avatar: row.avatar,
+    mustChangePassword: Boolean(row.must_change_password),
+    tempPasswordExpiresAt: row.temp_password_expires_at || null
+  };
+};
 
 export const authenticate = async (
   req: AuthenticatedRequest,
@@ -34,62 +68,26 @@ export const authenticate = async (
 
   const token = authHeader.split(' ')[1];
   try {
-    const secret = process.env.JWT_SECRET || 'super_secret_jwt_key_replace_in_production';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      res.status(500).json({ success: false, message: 'Server authentication is not configured.' });
+      return;
+    }
     const decoded = jwt.verify(token, secret) as any;
 
+    if (!decoded?.id) {
+      res.status(401).json({ success: false, message: 'Session expired or token invalid.' });
+      return;
+    }
+
+    // The database is authoritative for role and status. JWT claims are never
+    // used as a fallback identity, so deactivated or role-changed accounts lose
+    // access immediately.
     let userDoc: any = null;
-    if (mongoose.connection.readyState === 1) {
-      try {
-        userDoc = await User.findById(decoded.id);
-      } catch {}
-    }
-
-    if (!userDoc) {
-      try {
-        const row = db.prepare('SELECT * FROM users WHERE id = ?').get(decoded.id) as any;
-        if (row) {
-          let dept = 'Computer Science';
-          let yr = '3rd Year';
-          try {
-            const sp = db.prepare('SELECT department, year_cohort FROM student_profiles WHERE user_id = ?').get(row.id) as any;
-            if (sp) {
-              dept = sp.department || dept;
-              yr = sp.year_cohort || yr;
-            }
-          } catch {}
-
-          userDoc = {
-            _id: row.id,
-            id: row.id,
-            name: row.name,
-            email: row.email,
-            role: row.role,
-            status: row.status.toUpperCase(),
-            department: dept,
-            year: yr,
-            college: 'College of Engineering & Technology',
-            avatar: row.avatar,
-            mustChangePassword: false
-          };
-        }
-      } catch {}
-    }
-
-    // In serverless multi-container environments, respect verified signed JWT token claims
-    if (!userDoc && decoded && decoded.id && decoded.email) {
-      userDoc = {
-        _id: decoded.id,
-        id: decoded.id,
-        name: decoded.name || 'User',
-        email: decoded.email,
-        role: decoded.role || 'student',
-        status: 'ACTIVE',
-        department: decoded.department || 'Computer Science',
-        year: decoded.year || '3rd Year',
-        college: decoded.college || 'College of Engineering & Technology',
-        avatar: decoded.avatar,
-        mustChangePassword: false
-      };
+    if (useMongo()) {
+      userDoc = await User.findById(decoded.id);
+    } else {
+      userDoc = readSqliteUser(decoded.id);
     }
 
     if (!userDoc) {
@@ -97,7 +95,7 @@ export const authenticate = async (
       return;
     }
 
-    if (userDoc.status === 'BLOCKED' || userDoc.status === 'INACTIVE') {
+    if (isBlockedStatus(userDoc.status)) {
       res.status(403).json({ success: false, message: 'Account is blocked. Please contact an administrator.' });
       return;
     }
@@ -106,24 +104,29 @@ export const authenticate = async (
       id: userDoc.id || userDoc._id.toString(),
       name: userDoc.name,
       email: userDoc.email,
-      role: (userDoc.role.toLowerCase() as UserRole),
-      status: (userDoc.status.toLowerCase() as UserStatus),
+      role: String(userDoc.role).toLowerCase() as UserRole,
+      status: String(userDoc.status).toLowerCase() as UserStatus,
       department: userDoc.department || 'Computer Science',
       year: userDoc.year || '3rd Year',
       college: userDoc.college || 'College of Engineering & Technology',
       avatar: userDoc.avatar,
-      mustChangePassword: userDoc.mustChangePassword
+      mustChangePassword: Boolean(userDoc.mustChangePassword),
+      tempPasswordExpiresAt: userDoc.tempPasswordExpiresAt
+        ? new Date(userDoc.tempPasswordExpiresAt).toISOString()
+        : null
     };
 
+    const path = (req.originalUrl || req.url || '').split('?')[0];
+    const isOnboardingRoute =
+      path.endsWith('/auth/me') ||
+      path.endsWith('/auth/change-password') ||
+      path.endsWith('/auth/logout');
+
     // If user must change password, restrict them from protected operational routes
-    if (
-      userDoc.mustChangePassword &&
-      !req.path.includes('/change-password') &&
-      !req.path.includes('/me') &&
-      !req.path.includes('/logout')
-    ) {
+    if (userDoc.mustChangePassword && !isOnboardingRoute) {
       res.status(403).json({
         success: false,
+        code: 'PASSWORD_CHANGE_REQUIRED',
         mustChangePassword: true,
         message: 'Password change required before accessing other dashboard resources.'
       });

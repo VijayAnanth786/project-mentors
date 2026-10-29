@@ -104,8 +104,14 @@ export const Navbar: React.FC = () => {
             <div className="text-xs font-bold text-slate-800 leading-tight">
               {currentUser.name}
             </div>
-            <div className="text-[11px] text-slate-400 capitalize font-medium">
-              {currentUser.role}
+            <div className="text-[11px] text-slate-400 font-medium">
+              {currentUser.role === 'admin'
+                ? 'Administrator'
+                : currentUser.role === 'mentor'
+                ? 'Faculty Mentor'
+                : currentUser.role === 'student'
+                ? 'Student'
+                : 'User'}
             </div>
           </div>
 

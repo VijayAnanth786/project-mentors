@@ -19,6 +19,12 @@ export interface IUser extends Document {
   phone?: string;
   rollNumber?: string;
   mustChangePassword: boolean;
+  tempPasswordIssuedAt?: Date | null;
+  tempPasswordExpiresAt?: Date | null;
+  tempPasswordAttempts: number;
+  tempPasswordConsumedAt?: Date | null;
+  passwordChangedAt?: Date | null;
+  lastLoginAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidate: string): Promise<boolean>;
@@ -98,7 +104,13 @@ const userSchema = new Schema<IUser>(
     mustChangePassword: {
       type: Boolean,
       default: false
-    }
+    },
+    tempPasswordIssuedAt: { type: Date, default: null },
+    tempPasswordExpiresAt: { type: Date, default: null },
+    tempPasswordAttempts: { type: Number, default: 0 },
+    tempPasswordConsumedAt: { type: Date, default: null },
+    passwordChangedAt: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null }
   },
   {
     timestamps: true,
@@ -115,6 +127,7 @@ const userSchema = new Schema<IUser>(
 
 userSchema.index({ role: 1, status: 1 });
 userSchema.index({ department: 1 });
+userSchema.index({ tempPasswordExpiresAt: 1 });
 
 // Method to verify passwords securely
 userSchema.methods.comparePassword = async function (candidate: string): Promise<boolean> {

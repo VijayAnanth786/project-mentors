@@ -32,11 +32,9 @@ export const runSeed = async (forceClean = false) => {
   const upsertUser = (id: string, name: string, email: string, passwordHash: string, role: string, status: string, avatar: string, createdAt: string) => {
     const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email) as any;
     if (existing) {
-      db.prepare(`
-        UPDATE users 
-        SET name = ?, password_hash = ?, role = ?, status = ?, avatar = ?
-        WHERE id = ?
-      `).run(name, passwordHash, role, status, avatar, existing.id);
+      // Never reset credentials, roles, or status for an existing account.
+      // Restarting the server must not invalidate a password the user changed.
+      db.prepare('UPDATE users SET name = ?, avatar = ? WHERE id = ?').run(name, avatar, existing.id);
       return existing.id;
     } else {
       const existingId = db.prepare('SELECT id FROM users WHERE id = ?').get(id) as any;

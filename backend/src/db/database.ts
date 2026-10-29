@@ -22,7 +22,16 @@ if (!fs.existsSync(DB_DIR)) {
   }
 }
 
-const DB_PATH = path.join(DB_DIR, 'project_mentor.db');
+const DB_PATH = process.env.SQLITE_PATH
+  ? path.resolve(process.env.SQLITE_PATH)
+  : path.join(DB_DIR, 'project_mentor.db');
+
+export const isSqlitePersistent = (): boolean => {
+  const normalized = DB_PATH.replace(/\\/g, '/').toLowerCase();
+  return !normalized.startsWith('/tmp/') && !normalized.includes('/temp/');
+};
+
+export const getSqlitePath = (): string => DB_PATH;
 
 let dbInstance: any;
 try {
@@ -43,6 +52,17 @@ try {
 }
 
 export const db = dbInstance;
+
+const ensureColumn = (table: string, column: string, definition: string) => {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  } catch (err) {
+    console.warn(`[Database Migration Notice] ${table}.${column}:`, err);
+  }
+};
 
 export const initSchema = () => {
   db.exec(`
@@ -224,4 +244,13 @@ export const initSchema = () => {
     CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_events(created_at DESC);
   `);
+
+  // Additive, non-destructive migrations for mentor onboarding state.
+  ensureColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('users', 'temp_password_issued_at', 'TEXT');
+  ensureColumn('users', 'temp_password_expires_at', 'TEXT');
+  ensureColumn('users', 'temp_password_attempts', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('users', 'temp_password_consumed_at', 'TEXT');
+  ensureColumn('users', 'password_changed_at', 'TEXT');
+  ensureColumn('users', 'last_login_at', 'TEXT');
 };

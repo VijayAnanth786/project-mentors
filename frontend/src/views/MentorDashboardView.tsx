@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CalendarDays, ClipboardCheck, FolderKanban, Users, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { CalendarDays, ClipboardCheck, FolderKanban, Users, Clock, AlertTriangle, ArrowRight, KeyRound, CheckCircle2, ShieldCheck, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useFetch } from '../hooks/useData';
 import { api } from '../api/client';
@@ -8,8 +8,56 @@ import { MentorTeamDetails } from './MentorTeamDetails';
 import { pathToView } from '../components/navConfig';
 
 export const MentorDashboardView: React.FC = () => {
-  const { currentUser, setActiveView } = useApp();
+  const { currentUser, setCurrentUser, setActiveView, showToast } = useApp();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+
+  // In-Dashboard Temporary Password Update State
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordUpdating, setPasswordUpdating] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      setPasswordError('Enter your current password.');
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match.');
+      return;
+    }
+    setPasswordError('');
+    setPasswordUpdating(true);
+    try {
+      const res = await api.auth.changePassword({
+        currentPassword,
+        newPassword,
+        confirmPassword
+      });
+      if (res.success) {
+        setPasswordSuccess(true);
+        showToast('Password updated successfully! Your account is now secured.', 'success');
+        const updated = { ...currentUser, mustChangePassword: false };
+        setCurrentUser(updated);
+        localStorage.setItem('pm_user', JSON.stringify(updated));
+        setTimeout(() => setShowPasswordChangeModal(false), 2000);
+      } else {
+        setPasswordError(res.message || 'Failed to update password.');
+      }
+    } catch (err: any) {
+      setPasswordError(err?.response?.data?.message || err?.message || 'Failed to update password.');
+    } finally {
+      setPasswordUpdating(false);
+    }
+  };
 
   const { data, loading, error, refetch } = useFetch(() => api.mentor.getDashboard(), []);
 
@@ -53,6 +101,90 @@ export const MentorDashboardView: React.FC = () => {
           </button>
         }
       />
+
+      {/* Temporary Password Change Alert Banner */}
+      {showPasswordChangeModal && (
+        <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 shadow-sm space-y-3.5">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2.5 text-amber-950 font-black text-sm">
+              <KeyRound className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>Set Your Permanent Password</span>
+            </div>
+            <button
+              onClick={() => setShowPasswordChangeModal(false)}
+              className="p-1 rounded-lg hover:bg-amber-100 text-amber-700 transition-colors"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-amber-800 leading-relaxed font-medium">
+            You signed in using a temporary password. Choose a new personal password below to activate and secure your faculty account.
+          </p>
+
+          {passwordSuccess ? (
+            <div className="p-3 bg-emerald-100/70 border border-emerald-300 rounded-xl text-emerald-800 text-xs font-bold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Password updated successfully! Closing notice...</span>
+            </div>
+          ) : (
+            <form onSubmit={handleUpdatePassword} className="space-y-3">
+              <input
+                type="password"
+                required
+                placeholder="Current Password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-xs bg-white border border-amber-300 rounded-xl font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <input
+                    type="password"
+                    required
+                    placeholder="New Permanent Password (min. 8 chars)"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-white border border-amber-300 rounded-xl font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Confirm New Password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-white border border-amber-300 rounded-xl font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+              </div>
+
+              {passwordError && (
+                <p className="text-xs font-semibold text-rose-600">{passwordError}</p>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={passwordUpdating}
+                  className="px-5 py-2.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>{passwordUpdating ? 'Updating Password...' : 'Save New Password'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordChangeModal(false)}
+                  className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors cursor-pointer"
+                >
+                  Later
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

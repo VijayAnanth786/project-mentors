@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dns from 'dns';
+import { isMongoMode } from './storageMode';
 
 // Reliable DNS resolvers for SRV record resolution across all networks
 try {
@@ -38,7 +39,8 @@ export const getMongoDiagnostics = () => {
     configured: Boolean(uri && !uri.includes('<username>') && !uri.includes('<password>')),
     host: mongoose.connection.host || null,
     dbName: mongoose.connection.name || dbName,
-    lastError: lastMongoError
+    lastError: lastMongoError,
+    mode: process.env.DB_MODE || (process.env.NODE_ENV === 'production' ? 'mongo' : 'auto')
   };
 };
 
@@ -128,6 +130,9 @@ export const connectDB = async (): Promise<void> => {
 
   if (!mongoUri || mongoUri.includes('<username>') || mongoUri.includes('<password>')) {
     lastMongoError = 'Valid MONGODB_URI or MONGO_URI not provided in environment';
+    if (isMongoMode()) {
+      throw new Error('DB_MODE=mongo requires a valid MONGODB_URI. Refusing to start with ephemeral storage.');
+    }
     console.warn('[MongoDB Atlas Notice] Valid MONGODB_URI not configured. Operating in active storage mode.');
     return;
   }
@@ -142,6 +147,15 @@ export const connectDB = async (): Promise<void> => {
     });
     lastMongoError = null;
   } catch (error: any) {
+    if (isMongoMode()) {
+      lastMongoError = error?.message || 'MongoDB connection failed';
+      await mongoose.disconnect().catch(() => {});
+      throw new Error(
+        `MongoDB is required (DB_MODE=mongo) but the connection failed: ${lastMongoError}. ` +
+        'Refusing to serve requests with ephemeral SQLite storage.'
+      );
+    }
+
     const isIpIssue =
       error.message?.includes('SSL alert number 80') ||
       error.message?.includes('tlsv1 alert internal error') ||

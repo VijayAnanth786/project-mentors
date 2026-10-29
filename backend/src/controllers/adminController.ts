@@ -2,6 +2,7 @@ import { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import { useMongo } from '../config/storageMode';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import {
@@ -21,7 +22,7 @@ const escapeRegex = (str: string) => String(str || '').replace(/[.*+?^${}()|[\]\
 
 export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const isMongoReady = mongoose.connection.readyState === 1;
+    const isMongoReady = useMongo();
     let totalStudents = 0;
     let totalMentors = 0;
 
@@ -40,18 +41,21 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
 
     if (isMongoReady) {
       try {
-        activeTeams = await Team.countDocuments();
-        teamsWithoutMentors = await Team.countDocuments({ $or: [{ mentorId: null }, { mentorId: { $exists: false } }] });
+        activeTeams = await Team.countDocuments({ status: 'active' });
+        teamsWithoutMentors = await Team.countDocuments({
+          status: 'active',
+          $or: [{ mentorId: null }, { mentorId: { $exists: false } }]
+        });
       } catch {}
-    }
-
-    try {
-      const activeTeamsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE status = 'active'").get() as any;
-      const teamsWithoutMentorsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE mentor_id IS NULL AND status = 'active'").get() as any;
-      activeTeams = Math.max(activeTeams, activeTeamsRow?.count || 0);
-      teamsWithoutMentors = Math.max(teamsWithoutMentors, teamsWithoutMentorsRow?.count || 0);
-    } catch {
-      // Teams table empty or not initialized yet
+    } else {
+      try {
+        const activeTeamsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE status = 'active'").get() as any;
+        const teamsWithoutMentorsRow = db.prepare("SELECT COUNT(*) as count FROM teams WHERE mentor_id IS NULL AND status = 'active'").get() as any;
+        activeTeams = activeTeamsRow?.count || 0;
+        teamsWithoutMentors = teamsWithoutMentorsRow?.count || 0;
+      } catch {
+        // Teams table empty or not initialized yet
+      }
     }
 
     const summary = {
@@ -104,27 +108,29 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
       }
     }
 
-    try {
-      const sqlTeams = db.prepare(`
-        SELECT t.id, t.name, t.status as team_status, t.year_cohort,
-               p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
-               lu.name as leader_name, lu.email as leader_email,
-               mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email
-        FROM teams t
-        LEFT JOIN projects p ON t.project_id = p.id
-        LEFT JOIN users lu ON t.leader_id = lu.id
-        LEFT JOIN users mu ON t.mentor_id = mu.id
-        ORDER BY t.created_at DESC
-        LIMIT 10
-      `).all() as any[];
+    if (!isMongoReady) {
+      try {
+        const sqlTeams = db.prepare(`
+          SELECT t.id, t.name, t.status as team_status, t.year_cohort,
+                 p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
+                 lu.name as leader_name, lu.email as leader_email,
+                 mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email
+          FROM teams t
+          LEFT JOIN projects p ON t.project_id = p.id
+          LEFT JOIN users lu ON t.leader_id = lu.id
+          LEFT JOIN users mu ON t.mentor_id = mu.id
+          ORDER BY t.created_at DESC
+          LIMIT 10
+        `).all() as any[];
 
-      for (const st of sqlTeams) {
-        if (!seenNames.has(st.name.trim().toLowerCase())) {
-          teams.push(st);
-          seenNames.add(st.name.trim().toLowerCase());
+        for (const st of sqlTeams) {
+          if (!seenNames.has(st.name.trim().toLowerCase())) {
+            teams.push(st);
+            seenNames.add(st.name.trim().toLowerCase());
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     // 3. Needs Attention
     let needsAttention: any[] = [];
@@ -150,43 +156,62 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
       }
     }
 
-    try {
-      const unassignedTeams = db.prepare(`
-        SELECT t.id, t.name, 'No mentor assigned' as reason, 'team' as item_type
-        FROM teams t
-        WHERE t.mentor_id IS NULL AND t.status = 'active'
-        LIMIT 5
-      `).all() as any[];
+    if (!isMongoReady) {
+      try {
+        const unassignedTeams = db.prepare(`
+          SELECT t.id, t.name, 'No mentor assigned' as reason, 'team' as item_type
+          FROM teams t
+          WHERE t.mentor_id IS NULL AND t.status = 'active'
+          LIMIT 5
+        `).all() as any[];
 
-      for (const ut of unassignedTeams) {
-        if (!seenNeedsAttention.has(ut.name.trim().toLowerCase())) {
-          needsAttention.push(ut);
-          seenNeedsAttention.add(ut.name.trim().toLowerCase());
+        for (const ut of unassignedTeams) {
+          if (!seenNeedsAttention.has(ut.name.trim().toLowerCase())) {
+            needsAttention.push(ut);
+            seenNeedsAttention.add(ut.name.trim().toLowerCase());
+          }
         }
-      }
 
-      const overdueTeams = db.prepare(`
-        SELECT DISTINCT t.id, t.name, 'Has overdue progress submission' as reason, 'submission' as item_type
-        FROM weekly_submissions ws
-        JOIN teams t ON ws.team_id = t.id
-        WHERE ws.status = 'PENDING' AND ws.date < date('now')
-        LIMIT 5
-      `).all() as any[];
+        const overdueTeams = db.prepare(`
+          SELECT DISTINCT t.id, t.name, 'Has overdue progress submission' as reason, 'submission' as item_type
+          FROM weekly_submissions ws
+          JOIN teams t ON ws.team_id = t.id
+          WHERE ws.status = 'PENDING' AND ws.date < date('now')
+          LIMIT 5
+        `).all() as any[];
 
-      needsAttention = [...needsAttention, ...overdueTeams];
-    } catch {}
+        needsAttention = [...needsAttention, ...overdueTeams];
+      } catch {}
+    }
 
     // 4. Recent Activity
     let recentActivity: any[] = [];
-    try {
-      recentActivity = db.prepare(`
-        SELECT ae.id, ae.action_type, ae.description, ae.created_at, u.name as user_name
-        FROM activity_events ae
-        LEFT JOIN users u ON ae.user_id = u.id
-        ORDER BY ae.created_at DESC
-        LIMIT 10
-      `).all() as any[];
-    } catch {}
+    if (isMongoReady) {
+      try {
+        const events = await ActivityEvent.find()
+          .populate('userId', 'name')
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .lean();
+        recentActivity = events.map((event: any) => ({
+          id: event._id.toString(),
+          action_type: event.actionType,
+          description: event.description,
+          created_at: event.createdAt,
+          user_name: event.userId?.name || 'System'
+        }));
+      } catch {}
+    } else {
+      try {
+        recentActivity = db.prepare(`
+          SELECT ae.id, ae.action_type, ae.description, ae.created_at, u.name as user_name
+          FROM activity_events ae
+          LEFT JOIN users u ON ae.user_id = u.id
+          ORDER BY ae.created_at DESC
+          LIMIT 10
+        `).all() as any[];
+      } catch {}
+    }
 
     // 5. Mentor Workload
     let mentorAssignments: any[] = [];
@@ -351,43 +376,38 @@ export const updateStudentStatus = async (req: AuthenticatedRequest, res: Respon
 
 export const getAdminMentors = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const isMongoReady = mongoose.connection.readyState === 1;
-    const combinedMentors: any[] = [];
-    const seenEmails = new Set<string>();
+    const isMongoReady = useMongo();
+    const mentors: any[] = [];
 
     if (isMongoReady) {
-      try {
-        const mentors = await User.find({ role: 'MENTOR' }).sort({ name: 1 });
-        for (const m of mentors) {
-          const normEmail = (m.email || '').toLowerCase().trim();
-          seenEmails.add(normEmail);
+      const docs = await User.find({ role: 'MENTOR' }).sort({ name: 1 });
+      const counts = await Team.aggregate([
+        { $match: { mentorId: { $in: docs.map((doc) => doc._id) } } },
+        { $group: { _id: '$mentorId', count: { $sum: 1 } } }
+      ]);
+      const countMap = new Map(counts.map((row: any) => [row._id.toString(), row.count]));
 
-          const teamCount = await Team.countDocuments({ mentorId: m._id });
-
-          combinedMentors.push({
-            id: m._id.toString(),
-            name: m.name,
-            email: m.email,
-            status: m.status.toLowerCase(),
-            avatar: m.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-            department: m.department || 'Computer Science',
-            title: 'Faculty Mentor',
-            bio: null,
-            phone: null,
-            team_count: teamCount,
-            mustChangePassword: m.mustChangePassword,
-            created_at: m.createdAt
-          });
-        }
-      } catch (mErr) {
-        console.warn('[MongoDB getAdminMentors error]', mErr);
+      for (const m of docs) {
+        mentors.push({
+          id: m._id.toString(),
+          name: m.name,
+          email: m.email,
+          status: String(m.status).toLowerCase(),
+          avatar: m.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+          department: m.department || 'Computer Science',
+          title: m.title || 'Faculty Mentor',
+          bio: m.bio || null,
+          phone: m.phone || null,
+          team_count: countMap.get(m._id.toString()) || 0,
+          mustChangePassword: Boolean(m.mustChangePassword),
+          temporaryPasswordExpiresAt: m.tempPasswordExpiresAt || null,
+          created_at: m.createdAt
+        });
       }
-    }
-
-    // Local SQLite fallback and merge
-    try {
-      const sqlMentors = db.prepare(`
+    } else {
+      const rows = db.prepare(`
         SELECT u.id, u.name, u.email, u.status, u.avatar, u.created_at,
+               u.must_change_password, u.temp_password_expires_at,
                COALESCE(mp.department, 'Computer Science') as department,
                mp.title, mp.bio, mp.phone,
                COUNT(t.id) as team_count
@@ -399,21 +419,30 @@ export const getAdminMentors = async (req: AuthenticatedRequest, res: Response):
         ORDER BY u.name ASC
       `).all() as any[];
 
-      for (const sm of sqlMentors) {
-        const normEmail = (sm.email || '').toLowerCase().trim();
-        if (!seenEmails.has(normEmail)) {
-          seenEmails.add(normEmail);
-          combinedMentors.push(sm);
-        }
+      for (const row of rows) {
+        mentors.push({
+          ...row,
+          status: String(row.status).toLowerCase(),
+          mustChangePassword: Boolean(row.must_change_password),
+          temporaryPasswordExpiresAt: row.temp_password_expires_at || null
+        });
       }
-    } catch (sqlErr) {
-      console.warn('[SQLite getAdminMentors error]', sqlErr);
     }
 
-    res.json({ success: true, count: combinedMentors.length, data: combinedMentors });
+    res.json({ success: true, count: mentors.length, data: mentors });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to load mentors.' });
   }
+};
+
+const TEMP_PASSWORD_TTL_HOURS = Number(process.env.TEMP_PASSWORD_TTL_HOURS || 72);
+
+const generateTemporaryPassword = (): string => {
+  return `Temp-${crypto.randomBytes(12).toString('base64url')}`;
+};
+
+const temporaryPasswordExpiry = (): Date => {
+  return new Date(Date.now() + TEMP_PASSWORD_TTL_HOURS * 60 * 60 * 1000);
 };
 
 export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -421,109 +450,125 @@ export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): 
     const { name, email, department } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
-      res.status(400).json({ success: false, message: 'Name is required (at least 2 characters).' });
+      res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'Name is required (at least 2 characters).' });
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || typeof email !== 'string' || !emailRegex.test(email.trim())) {
-      res.status(400).json({ success: false, message: 'Please provide a valid institutional email address.' });
+      res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'Please provide a valid institutional email address.' });
       return;
     }
 
-    if (!department || typeof department !== 'string') {
-      res.status(400).json({ success: false, message: 'Department is required.' });
+    if (!department || typeof department !== 'string' || department.trim().length < 2) {
+      res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'Department is required.' });
       return;
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const isMongoReady = mongoose.connection.readyState === 1;
+    const normalizedName = name.trim();
+    const normalizedDepartment = department.trim();
+    const isMongoReady = useMongo();
 
-    // Check existing in SQLite first
-    const existingSQLite = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail) as any;
-    if (existingSQLite) {
-      res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
-      return;
-    }
-
-    if (isMongoReady) {
-      const existingMongo = await User.findOne({ email: normalizedEmail });
-      if (existingMongo) {
-        res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
-        return;
-      }
-    }
-
-    // Generate strong random temporary password
-    const tempPassword = 'Temp_' + crypto.randomBytes(4).toString('hex') + '!' + Math.floor(100 + Math.random() * 900);
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(tempPassword, salt);
-
-    const mentorId = `usr_mentor_${Date.now()}`;
+    const tempPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    const expiresAt = temporaryPasswordExpiry();
     const avatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80';
 
-    // Always persist to SQLite
-    db.prepare(`
-      INSERT INTO users (id, name, email, password_hash, role, status, avatar)
-      VALUES (?, ?, ?, ?, 'mentor', 'active', ?)
-    `).run(mentorId, name.trim(), normalizedEmail, passwordHash, avatar);
+    let mentorId: string;
 
-    try {
-      db.prepare(`
-        INSERT INTO mentor_profiles (id, user_id, department, title)
-        VALUES (?, ?, ?, 'Faculty Mentor')
-      `).run(`mp_${Date.now()}`, mentorId, department.trim());
-    } catch {}
-
-    // If Mongo Atlas is ready, also sync user document
     if (isMongoReady) {
+      const existingMongo = await User.findOne({ email: normalizedEmail })
+        .collation({ locale: 'en', strength: 2 });
+      if (existingMongo) {
+        res.status(409).json({ success: false, code: 'EMAIL_EXISTS', message: 'A user with this email address already exists.' });
+        return;
+      }
+
+      const created = await User.create({
+        name: normalizedName,
+        email: normalizedEmail,
+        passwordHash,
+        role: 'MENTOR',
+        status: 'ACTIVE',
+        department: normalizedDepartment,
+        title: 'Faculty Mentor',
+        avatar,
+        mustChangePassword: true,
+        tempPasswordIssuedAt: new Date(),
+        tempPasswordExpiresAt: expiresAt,
+        tempPasswordAttempts: 0,
+        tempPasswordConsumedAt: null
+      });
+      mentorId = created._id.toString();
+    } else {
+      const existingSQLite = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+      if (existingSQLite) {
+        res.status(409).json({ success: false, code: 'EMAIL_EXISTS', message: 'A user with this email address already exists.' });
+        return;
+      }
+
+      mentorId = `usr_mentor_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
       try {
-        await User.create({
-          _id: new mongoose.Types.ObjectId(),
-          name: name.trim(),
-          email: normalizedEmail,
-          passwordHash,
-          role: 'MENTOR',
-          status: 'ACTIVE',
-          department: department.trim(),
-          avatar,
-          mustChangePassword: true
-        });
-      } catch (mErr) {
-        console.warn('[Mongo Sync Notice] Could not replicate mentor to Atlas:', mErr);
+        db.exec('BEGIN');
+        db.prepare(`
+          INSERT INTO users (
+            id, name, email, password_hash, role, status, avatar,
+            must_change_password, temp_password_issued_at, temp_password_expires_at, temp_password_attempts
+          )
+          VALUES (?, ?, ?, ?, 'mentor', 'active', ?, 1, CURRENT_TIMESTAMP, ?, 0)
+        `).run(mentorId, normalizedName, normalizedEmail, passwordHash, avatar, expiresAt.toISOString());
+
+        db.prepare(`
+          INSERT INTO mentor_profiles (id, user_id, department, title)
+          VALUES (?, ?, ?, 'Faculty Mentor')
+        `).run(`mp_${mentorId}`, mentorId, normalizedDepartment);
+
+        db.exec('COMMIT');
+      } catch (writeErr) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw writeErr;
       }
     }
 
-    // Log activity event
     try {
       db.prepare(`
         INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id)
         VALUES (?, ?, 'MENTOR_ADDED', ?, 'user', ?)
-      `).run(`act_${Date.now()}`, req.user?.id || 'usr_admin_1', `Admin added faculty mentor ${name.trim()} (${department.trim()})`, mentorId);
+      `).run(`act_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`, req.user?.id || '', `Admin added faculty mentor ${normalizedName} (${normalizedDepartment})`, mentorId);
     } catch {}
 
-    // Reveal the temporary password once in creation response (never logged or persisted in plain text)
+    // The plaintext temporary password is returned exactly once and never logged.
     res.status(201).json({
       success: true,
       message: 'Mentor account created successfully. No invitation email was sent; please share the temporary credentials with the mentor privately.',
       data: {
         id: mentorId,
-        name: name.trim(),
+        name: normalizedName,
         email: normalizedEmail,
-        department: department.trim(),
+        department: normalizedDepartment,
+        role: 'mentor',
+        status: 'active',
         temporaryPassword: tempPassword,
+        temporaryPasswordExpiresAt: expiresAt.toISOString(),
         mustChangePassword: true,
+        delivery: 'manual',
         notice: 'No invitation email was sent. Please share this temporary password securely with the mentor.'
       }
     });
   } catch (error: any) {
-    if (error.code === 11000) {
-      res.status(409).json({ success: false, message: 'A user with this email address already exists.' });
+    if (error?.code === 11000) {
+      res.status(409).json({ success: false, code: 'EMAIL_EXISTS', message: 'A user with this email address already exists.' });
       return;
     }
-    console.error('[Add Mentor Error]', error);
-    res.status(500).json({ success: false, message: error.message || 'Failed to create mentor' });
+    console.error('[Add Mentor Error]', error?.message || error);
+    res.status(500).json({ success: false, message: 'Failed to create mentor. No account was created.' });
   }
+};
+
+const normalizeMentorStatus = (value: unknown): 'ACTIVE' | 'BLOCKED' => {
+  const norm = String(value || '').toUpperCase();
+  return norm === 'BLOCKED' || norm === 'INACTIVE' ? 'BLOCKED' : 'ACTIVE';
 };
 
 export const updateAdminMentor = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -531,71 +576,213 @@ export const updateAdminMentor = async (req: AuthenticatedRequest, res: Response
     const { id } = req.params;
     const { name, department, status } = req.body;
 
-    const mentor = await User.findOne({ _id: id, role: 'MENTOR' });
-    if (!mentor) {
+    if (name !== undefined && (typeof name !== 'string' || name.trim().length < 2)) {
+      res.status(400).json({ success: false, message: 'Name must be at least 2 characters.' });
+      return;
+    }
+    if (department !== undefined && (typeof department !== 'string' || department.trim().length < 2)) {
+      res.status(400).json({ success: false, message: 'Department is required.' });
+      return;
+    }
+
+    if (useMongo()) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      const mentor = await User.findOne({ _id: id, role: 'MENTOR' });
+      if (!mentor) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+
+      if (typeof name === 'string') mentor.name = name.trim();
+      if (typeof department === 'string') mentor.department = department.trim();
+      if (status !== undefined) mentor.status = normalizeMentorStatus(status);
+
+      await mentor.save();
+
+      res.json({
+        success: true,
+        message: 'Mentor profile updated successfully.',
+        data: {
+          id: mentor._id.toString(),
+          name: mentor.name,
+          email: mentor.email,
+          department: mentor.department,
+          status: String(mentor.status).toLowerCase()
+        }
+      });
+      return;
+    }
+
+    const row = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'mentor'").get(id) as any;
+    if (!row) {
       res.status(404).json({ success: false, message: 'Mentor not found.' });
       return;
     }
 
-    // Only update allowed fields (never allow arbitrary role changes)
-    if (name && typeof name === 'string') {
-      mentor.name = name.trim();
+    const nextName = typeof name === 'string' ? name.trim() : row.name;
+    const nextStatus = status !== undefined ? normalizeMentorStatus(status) : String(row.status).toUpperCase();
+    db.prepare('UPDATE users SET name = ?, status = ? WHERE id = ?').run(
+      nextName,
+      nextStatus === 'ACTIVE' ? 'active' : 'inactive',
+      id
+    );
+
+    if (typeof department === 'string') {
+      db.prepare(`
+        INSERT INTO mentor_profiles (id, user_id, department, title)
+        VALUES (?, ?, ?, 'Faculty Mentor')
+        ON CONFLICT(user_id) DO UPDATE SET department = excluded.department
+      `).run(`mp_${id}`, id, department.trim());
     }
 
-    if (department && typeof department === 'string') {
-      mentor.department = department.trim();
-    }
-
-    if (status) {
-      const norm = String(status).toUpperCase();
-      if (norm === 'ACTIVE' || norm === 'BLOCKED') {
-        mentor.status = norm;
-      } else if (norm === 'INACTIVE') {
-        mentor.status = 'BLOCKED';
-      }
-    }
-
-    await mentor.save();
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    const profile = db.prepare('SELECT department FROM mentor_profiles WHERE user_id = ?').get(id) as any;
 
     res.json({
       success: true,
       message: 'Mentor profile updated successfully.',
       data: {
-        id: mentor._id.toString(),
-        name: mentor.name,
-        email: mentor.email,
-        department: mentor.department,
-        status: mentor.status.toLowerCase()
+        id,
+        name: updated.name,
+        email: updated.email,
+        department: profile?.department || 'Computer Science',
+        status: String(updated.status).toLowerCase()
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to update mentor.' });
   }
 };
 
 export const updateMentorStatus = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const targetStatus = normalizeMentorStatus(req.body?.status);
 
-    const mentor = await User.findOne({ _id: id, role: 'MENTOR' });
-    if (!mentor) {
-      res.status(404).json({ success: false, message: 'Mentor not found.' });
-      return;
+    if (useMongo()) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      const mentor = await User.findOne({ _id: id, role: 'MENTOR' });
+      if (!mentor) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      mentor.status = targetStatus;
+      await mentor.save();
+    } else {
+      const result = db.prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'mentor'").run(
+        targetStatus === 'ACTIVE' ? 'active' : 'inactive',
+        id
+      );
+      if (!result.changes) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
     }
-
-    const norm = String(status || '').toUpperCase();
-    const targetStatus: 'ACTIVE' | 'BLOCKED' = norm === 'BLOCKED' || norm === 'INACTIVE' ? 'BLOCKED' : 'ACTIVE';
-
-    mentor.status = targetStatus;
-    await mentor.save();
 
     res.json({
       success: true,
       message: `Mentor marked as ${targetStatus.toLowerCase()}.`
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to update mentor status.' });
+  }
+};
+
+export const reissueMentorTemporaryPassword = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const tempPassword = generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    const expiresAt = temporaryPasswordExpiry();
+
+    if (useMongo()) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      const mentor = await User.findOne({ _id: id, role: 'MENTOR' }).select('+passwordHash');
+      if (!mentor) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      mentor.passwordHash = passwordHash;
+      mentor.mustChangePassword = true;
+      mentor.tempPasswordIssuedAt = new Date();
+      mentor.tempPasswordExpiresAt = expiresAt;
+      mentor.tempPasswordAttempts = 0;
+      mentor.tempPasswordConsumedAt = null;
+      await mentor.save();
+    } else {
+      const result = db.prepare(`
+        UPDATE users
+        SET password_hash = ?, must_change_password = 1, temp_password_issued_at = CURRENT_TIMESTAMP,
+            temp_password_expires_at = ?, temp_password_attempts = 0, temp_password_consumed_at = NULL
+        WHERE id = ? AND role = 'mentor'
+      `).run(passwordHash, expiresAt.toISOString(), id);
+      if (!result.changes) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'A new temporary password was issued. The previous one is no longer valid.',
+      data: {
+        id,
+        temporaryPassword: tempPassword,
+        temporaryPasswordExpiresAt: expiresAt.toISOString(),
+        mustChangePassword: true,
+        delivery: 'manual'
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Unable to issue a temporary password.' });
+  }
+};
+
+export const deleteAdminMentor = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (useMongo()) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      const mentor = await User.findOne({ _id: id, role: 'MENTOR' });
+      if (!mentor) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      await Team.updateMany({ mentorId: mentor._id }, { $set: { mentorId: null } });
+      await User.deleteOne({ _id: mentor._id });
+    } else {
+      const row = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'mentor'").get(id) as any;
+      if (!row) {
+        res.status(404).json({ success: false, message: 'Mentor not found.' });
+        return;
+      }
+      db.prepare('UPDATE teams SET mentor_id = NULL WHERE mentor_id = ?').run(id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    }
+
+    try {
+      db.prepare(`
+        INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id)
+        VALUES (?, ?, 'MENTOR_REMOVED', ?, 'user', ?)
+      `).run(`act_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`, req.user?.id || '', `Admin removed mentor ${id}`, id);
+    } catch {}
+
+    res.json({ success: true, message: 'Mentor removed successfully.', data: { id } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Unable to remove mentor.' });
   }
 };
 
@@ -1171,16 +1358,25 @@ export const createAdminAnnouncement = async (req: AuthenticatedRequest, res: Re
 
     // 2. Persist to SQLite store
     try {
+      let sqliteAuthorId = adminId;
+      const sqliteAdmin = db.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE OR id = ?").get(adminEmail, adminId) as any;
+      if (sqliteAdmin) {
+        sqliteAuthorId = sqliteAdmin.id;
+      } else {
+        const fallbackAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get() as any;
+        if (fallbackAdmin) sqliteAuthorId = fallbackAdmin.id;
+      }
+
       db.exec('BEGIN TRANSACTION;');
       db.prepare(`
         INSERT INTO announcements (id, author_id, title, message, audience, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(annId, adminId, title.trim(), message.trim(), audience, nowIso);
+      `).run(annId, sqliteAuthorId, title.trim(), message.trim(), audience, nowIso);
 
       db.prepare(`
         INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
         VALUES (?, ?, 'ANNOUNCEMENT_PUBLISHED', ?, 'announcement', ?, ?)
-      `).run(`act_${Date.now()}`, adminId, `Published announcement "${title.trim()}" for ${audience}`, annId, nowIso);
+      `).run(`act_${Date.now()}`, sqliteAuthorId, `Published announcement "${title.trim()}" for ${audience}`, annId, nowIso);
 
       let userQuery = "SELECT id FROM users WHERE status = 'active'";
       if (audience === 'students') userQuery += " AND role = 'student'";

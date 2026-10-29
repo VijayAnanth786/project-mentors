@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Mentor, User, Project, ProgressSubmission, TeamCardData } from '../types';
+import { User, Project, ProgressSubmission, TeamCardData } from '../types';
 import { api } from '../api/client';
 import { Toast } from '../components/shared';
 
@@ -19,7 +19,9 @@ interface AppContextType {
     mustChangePassword?: boolean;
     user?: User;
     token?: string;
+    temporaryPasswordExpiresAt?: string | null;
   }>;
+  applySession: (user: User, token: string) => void;
   googleLogin: (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => Promise<{
     success: boolean;
     message?: string;
@@ -38,8 +40,6 @@ interface AppContextType {
   refreshStudentData: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   users: User[];
-  mentors: Mentor[];
-  createMentor: (mentor: Omit<Mentor, 'id' | 'role' | 'createdAt'>) => void;
 }
 
 const emptyUser: User = {
@@ -65,7 +65,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [teams, setTeams] = useState<TeamCardData[]>([]);
   const [submissions, setSubmissions] = useState<ProgressSubmission[]>([]);
   const [users] = useState<User[]>([]);
-  const [mentors, setMentors] = useState<Mentor[]>([]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -162,6 +161,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (res?.user) {
             setCurrentUser(res.user);
             localStorage.setItem('pm_user', JSON.stringify(res.user));
+            if (res.user.mustChangePassword) {
+              setActiveView('login');
+              window.history.replaceState({}, '', '/login');
+              return;
+            }
             if (res.user.role === 'student') {
               refreshStudentData();
               refreshTeams();
@@ -187,12 +191,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = async (credentials: { email: string; password: string }) => {
     try {
       const data = await api.auth.login(credentials);
+      const userWithFlag = {
+        ...data.user,
+        mustChangePassword: Boolean(data.mustChangePassword)
+      };
       localStorage.setItem('pm_auth_token', data.token);
-      localStorage.setItem('pm_user', JSON.stringify(data.user));
-      setCurrentUser(data.user);
+      localStorage.setItem('pm_user', JSON.stringify(userWithFlag));
+      setCurrentUser(userWithFlag);
 
+      // First login with a temporary password must not reach any dashboard.
       if (data.mustChangePassword) {
-        return { success: true, mustChangePassword: true, user: data.user, token: data.token };
+        setActiveView('login');
+        window.history.replaceState({}, '', '/login');
+        return {
+          success: true,
+          mustChangePassword: true,
+          user: userWithFlag,
+          token: data.token,
+          temporaryPasswordExpiresAt: data.temporaryPasswordExpiresAt
+        };
       }
 
       const targetPath = data.redirectUrl || (data.user.role === 'admin' ? '/admin/dashboard' : data.user.role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard');
@@ -207,7 +224,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       showToast(`Welcome back, ${data.user.name}!`, 'success');
-      return { success: true };
+      return { success: true, mustChangePassword: false, user: userWithFlag, token: data.token };
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Login failed. Please verify credentials.';
       return { success: false, message };
@@ -309,17 +326,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const createMentor = (mentorData: Omit<Mentor, 'id' | 'role' | 'createdAt'>) => {
-    setMentors((prev) => [
-      ...prev,
-      {
-        ...mentorData,
-        id: `mentor_${Date.now()}`,
-        role: 'mentor',
-        createdAt: new Date().toISOString()
-      }
-    ]);
-  };
+  const applySession = useCallback((user: User, token: string) => {
+    localStorage.setItem('pm_auth_token', token);
+    localStorage.setItem('pm_user', JSON.stringify(user));
+    setCurrentUser(user);
+  }, []);
 
   return (
     <AppContext.Provider
@@ -329,6 +340,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeView,
         setActiveView,
         login,
+        applySession,
         googleLogin,
         logout,
         showToast,
@@ -341,9 +353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         joinTeam,
         refreshStudentData,
         refreshTeams,
-        users,
-        mentors,
-        createMentor
+        users
       }}
     >
       {children}

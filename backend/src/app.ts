@@ -11,8 +11,9 @@ import studentRoutes from './routes/studentRoutes';
 import fileRoutes from './routes/fileRoutes';
 import teamRoutes from './routes/teamRoutes';
 import progressRoutes from './routes/progressRoutes';
-import { initSchema } from './db/database';
+import { initSchema, isSqlitePersistent } from './db/database';
 import { runSeed } from './db/seed';
+import { assertStorageReady, getStorageMode, useMongo } from './config/storageMode';
 
 // 1. Load environment configuration across multiple possible locations
 dotenv.config();
@@ -28,27 +29,36 @@ dotenv.config({ path: path.resolve(__dirname, '../atlas-credentials.env') });
 
 // 2. Initialize Express App
 const app = express();
+app.set('trust proxy', 1);
 
 // 3. Configure robust CORS middleware
-const allowedOriginPatterns = [
-  /^https:\/\/.*\.vercel\.app$/,   // all Vercel preview & production deployments
-  /^http:\/\/localhost(:\d+)?$/,   // local development
-  /^http:\/\/127\.0\.0\.1(:\d+)?$/ // local IP
+const localOriginPatterns = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(:\d+)?$/
 ];
+const productionOriginPatterns = [
+  /^https:\/\/.*\.vercel\.app$/
+];
+const configuredOrigins = String(process.env.CORS_ORIGINS || process.env.CLIENT_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser requests (curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
 
-    const matchesPattern = allowedOriginPatterns.some((pattern) => pattern.test(origin));
-    const matchesClientUrl = process.env.CLIENT_URL && origin === process.env.CLIENT_URL;
+    const isDev = process.env.NODE_ENV !== 'production';
+    const patterns = isDev ? [...localOriginPatterns, ...productionOriginPatterns] : productionOriginPatterns;
+    const matchesPattern = patterns.some((pattern) => pattern.test(origin));
+    const matchesConfigured = configuredOrigins.includes(origin);
 
-    if (matchesPattern || matchesClientUrl || process.env.NODE_ENV !== 'production') {
+    if (matchesPattern || matchesConfigured) {
       callback(null, true);
     } else {
-      // Allow the origin rather than throwing an unhandled Error (which crashes OPTIONS preflights)
-      callback(null, true);
+      // Reject without CORS headers. Do not throw, so preflight does not crash.
+      callback(null, false);
     }
   },
   credentials: true,
@@ -70,18 +80,32 @@ let hasAttemptedInitialConnect = false;
 export const ensureDB = async (): Promise<void> => {
   if (!hasAttemptedInitialConnect && mongoose.connection.readyState !== 1 && mongoose.connection.readyState !== 2) {
     hasAttemptedInitialConnect = true;
-    try {
-      await connectDB();
-    } catch (err) {
-      console.warn('[DB Connection Warning]', err);
-    }
+    // In DB_MODE=mongo this throws, deliberately failing startup instead of
+    // silently accepting writes into ephemeral storage.
+    await connectDB();
+  }
+
+  // MongoDB was requested and is connected: SQLite is not initialized or used.
+  if (useMongo()) {
+    assertStorageReady();
+    return;
+  }
+
+  if (getStorageMode() === 'mongo') {
+    assertStorageReady();
+    return;
   }
 
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
       try {
         initSchema();
-        await runSeed(false);
+        const shouldSeed = process.env.SEED_DEMO_DATA
+          ? process.env.SEED_DEMO_DATA === 'true'
+          : process.env.NODE_ENV !== 'production';
+        if (shouldSeed) {
+          await runSeed(false);
+        }
       } catch (dbErr) {
         console.warn('[Local Schema Notice]', dbErr);
       }
@@ -94,10 +118,15 @@ export const ensureDB = async (): Promise<void> => {
 app.use(async (req: Request, res: Response, next: NextFunction) => {
   try {
     await ensureDB();
-  } catch (err) {
-    console.warn('[DB Middleware Notice]', err);
+    next();
+  } catch (err: any) {
+    console.error('[DB Middleware Failure]', err?.message || err);
+    res.status(503).json({
+      success: false,
+      code: 'STORAGE_UNAVAILABLE',
+      message: 'The configured database is unavailable. No data was written.'
+    });
   }
-  next();
 });
 
 // 6. API Router (mounted on both /api and root to handle any routing/proxy prefix variation)
@@ -113,13 +142,22 @@ apiRouter.use('/progress', progressRoutes);
 
 apiRouter.get('/health', (req: Request, res: Response) => {
   const mongoDiag = getMongoDiagnostics();
+  const mode = getStorageMode();
+  const mongoHealthy = mongoDiag.connected;
+  const sqliteHealthy = mode !== 'mongo';
+  const healthy = mode === 'mongo' ? mongoHealthy : sqliteHealthy;
 
-  res.json({
-    status: 'healthy',
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'healthy' : 'unhealthy',
     timestamp: new Date().toISOString(),
     service: 'ProjectMentor API',
     mongo: mongoDiag,
-    storage: mongoDiag.connected ? 'MongoDB Atlas (Primary) + SQLite' : 'SQLite (Active Storage Mode)'
+    storage: {
+      mode,
+      connected: mode === 'mongo' ? mongoHealthy : sqliteHealthy,
+      persistent: mode === 'mongo' ? mongoHealthy : isSqlitePersistent(),
+      dbName: mode === 'mongo' ? mongoDiag.dbName : 'project_mentor.db'
+    }
   });
 });
 

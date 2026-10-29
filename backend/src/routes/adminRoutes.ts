@@ -7,6 +7,8 @@ import {
   addAdminMentor,
   updateAdminMentor,
   updateMentorStatus,
+  reissueMentorTemporaryPassword,
+  deleteAdminMentor,
   getAdminTeams,
   assignTeamMentor,
   getAdminProjects,
@@ -35,6 +37,8 @@ router.post('/mentors', addAdminMentor);
 router.put('/mentors/:id', updateAdminMentor);
 router.patch('/mentors/:id', updateAdminMentor);
 router.put('/mentors/:id/status', updateMentorStatus);
+router.post('/mentors/:id/temp-password', reissueMentorTemporaryPassword);
+router.delete('/mentors/:id', deleteAdminMentor);
 
 // Teams & Mentor Assignment
 router.get('/teams', getAdminTeams);
