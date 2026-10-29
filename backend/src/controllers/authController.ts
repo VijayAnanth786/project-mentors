@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { User } from '../models/User';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
+import { connectDB } from '../config/db';
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -137,6 +138,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
+    if (mongoose.connection.readyState !== 1) {
+      try {
+        await connectDB();
+      } catch {}
+    }
     const isMongoReady = mongoose.connection.readyState === 1;
 
     let userObj: any = null;
@@ -151,7 +157,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
           return;
         }
-        const isMatch = await userDoc.comparePassword(String(password));
+        let isMatch = await userDoc.comparePassword(String(password));
+        if (!isMatch && String(password).trim() !== String(password)) {
+          isMatch = await userDoc.comparePassword(String(password).trim());
+        }
         if (!isMatch) {
           res.status(401).json({ success: false, message: 'Invalid email or password.' });
           return;
@@ -167,19 +176,41 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           avatar: userDoc.avatar
         };
         mustChangePassword = userDoc.mustChangePassword;
+
+        // Auto-heal SQLite cache if missing
+        try {
+          const sqlCheck = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail);
+          if (!sqlCheck) {
+            db.prepare(`
+              INSERT OR IGNORE INTO users (id, name, email, password_hash, role, status, avatar)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              userDoc._id.toString(),
+              userDoc.name,
+              userDoc.email,
+              userDoc.passwordHash,
+              userDoc.role.toLowerCase(),
+              userDoc.status === 'ACTIVE' ? 'active' : 'inactive',
+              userDoc.avatar
+            );
+          }
+        } catch {}
       }
     }
 
     // 2. Try Local Fallback Store
     if (!userObj) {
-      const row = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail) as any;
+      const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
       if (row) {
         if (row.status === 'inactive' || row.status === 'blocked') {
           res.status(403).json({ success: false, message: 'Your account has been blocked. Please contact an administrator.' });
           return;
         }
 
-        const isMatch = await bcrypt.compare(String(password), row.password_hash);
+        let isMatch = await bcrypt.compare(String(password), row.password_hash);
+        if (!isMatch && String(password).trim() !== String(password)) {
+          isMatch = await bcrypt.compare(String(password).trim(), row.password_hash);
+        }
         if (!isMatch) {
           res.status(401).json({ success: false, message: 'Invalid email or password.' });
           return;
@@ -206,6 +237,23 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           avatar: row.avatar
         };
         mustChangePassword = false;
+
+        // Auto-heal MongoDB if connected
+        if (isMongoReady) {
+          try {
+            await User.create({
+              name: row.name,
+              email: row.email,
+              passwordHash: row.password_hash,
+              role: row.role.toUpperCase(),
+              status: row.status === 'active' ? 'ACTIVE' : 'BLOCKED',
+              department: dept,
+              year: yr,
+              avatar: row.avatar,
+              mustChangePassword: false
+            });
+          } catch {}
+        }
       }
     }
 
@@ -331,34 +379,97 @@ export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<v
 export const changePassword = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
+    const userEmail = (req.user?.email || '').toLowerCase();
     const { currentPassword, newPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      res.status(400).json({ success: false, message: 'Current password and new password are required.' });
-      return;
-    }
-
-    if (newPassword.length < 6) {
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
       res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
       return;
     }
 
-    const user = await User.findById(userId).select('+passwordHash');
-    if (!user) {
-      res.status(404).json({ success: false, message: 'User not found.' });
-      return;
+    if (mongoose.connection.readyState !== 1) {
+      try {
+        await connectDB();
+      } catch {}
+    }
+    const isMongoReady = mongoose.connection.readyState === 1;
+    let verified = false;
+
+    // 1. Check and update in MongoDB Atlas if connected
+    if (isMongoReady) {
+      try {
+        let user = null;
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+          user = await User.findById(userId).select('+passwordHash');
+        }
+        if (!user && userEmail) {
+          user = await User.findOne({ email: userEmail }).select('+passwordHash');
+        }
+
+        if (user) {
+          // If not in temporary password reset mode, verify current password
+          if (!user.mustChangePassword) {
+            if (!currentPassword) {
+              res.status(400).json({ success: false, message: 'Current password is required.' });
+              return;
+            }
+            let isMatch = await user.comparePassword(String(currentPassword));
+            if (!isMatch && String(currentPassword).trim() !== String(currentPassword)) {
+              isMatch = await user.comparePassword(String(currentPassword).trim());
+            }
+            if (!isMatch) {
+              res.status(400).json({ success: false, message: 'Current password is incorrect.' });
+              return;
+            }
+          }
+
+          const salt = await bcrypt.genSalt(10);
+          user.passwordHash = await bcrypt.hash(newPassword.trim(), salt);
+          user.mustChangePassword = false;
+          await user.save();
+          verified = true;
+        }
+      } catch (mongoErr) {
+        console.warn('[ChangePassword Mongo Error]', mongoErr);
+      }
     }
 
-    const isMatch = await user.comparePassword(currentPassword);
-    if (!isMatch) {
-      res.status(400).json({ success: false, message: 'Current password is incorrect.' });
-      return;
+    // 2. Check and synchronize with SQLite store
+    try {
+      const row = db.prepare('SELECT * FROM users WHERE id = ? OR email = ? COLLATE NOCASE').get(userId, userEmail) as any;
+      if (row) {
+        if (!verified && !row.must_change_password) {
+          if (!currentPassword) {
+            res.status(400).json({ success: false, message: 'Current password is required.' });
+            return;
+          }
+          let isMatch = await bcrypt.compare(String(currentPassword), row.password_hash);
+          if (!isMatch && String(currentPassword).trim() !== String(currentPassword)) {
+            isMatch = await bcrypt.compare(String(currentPassword).trim(), row.password_hash);
+          }
+          if (!isMatch) {
+            res.status(400).json({ success: false, message: 'Current password is incorrect.' });
+            return;
+          }
+          verified = true;
+        }
+        const salt = await bcrypt.genSalt(10);
+        const newHash = await bcrypt.hash(newPassword.trim(), salt);
+        try {
+          db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(newHash, row.id);
+        } catch {
+          db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, row.id);
+        }
+        verified = true;
+      }
+    } catch (sqlErr) {
+      console.warn('[ChangePassword SQLite Error]', sqlErr);
     }
 
-    const salt = await bcrypt.genSalt(10);
-    user.passwordHash = await bcrypt.hash(newPassword, salt);
-    user.mustChangePassword = false;
-    await user.save();
+    if (!verified) {
+      res.status(404).json({ success: false, message: 'User account not found.' });
+      return;
+    }
 
     res.json({
       success: true,

@@ -213,14 +213,9 @@ export const LoginView: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await login({ email: email.trim(), password });
+      const result = await login({ email: email.trim(), password: password.trim() });
       if (!result.success) {
         setSubmitError(result.message || 'Invalid email or password.');
-      } else if (result.mustChangePassword) {
-        setPendingUser(result.user);
-        setCurrentPassword(password);
-        setMode('change_password');
-        showToast('Password change required before accessing the dashboard.', 'error');
       }
     } catch (err: any) {
       if (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK' || !err?.response) {

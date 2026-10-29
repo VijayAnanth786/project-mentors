@@ -22,17 +22,23 @@ const dbName = process.env.DB_NAME || 'pulse_app';
 
 async function checkPublicIp() {
   return new Promise((resolve) => {
-    https.get('https://api.ipify.org?format=json', (res) => {
+    const timer = setTimeout(() => resolve('Unknown (timeout)'), 2500);
+    const req = https.get('https://api.ipify.org?format=json', (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        clearTimeout(timer);
         try {
           resolve(JSON.parse(data).ip);
         } catch {
           resolve('Unknown');
         }
       });
-    }).on('error', () => resolve('Unknown'));
+    });
+    req.on('error', () => {
+      clearTimeout(timer);
+      resolve('Unknown');
+    });
   });
 }
 

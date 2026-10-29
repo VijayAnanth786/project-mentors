@@ -2,6 +2,7 @@ import { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
+import { connectDB } from '../config/db';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import {
@@ -437,6 +438,11 @@ export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): 
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    if (mongoose.connection.readyState !== 1) {
+      try {
+        await connectDB();
+      } catch {}
+    }
     const isMongoReady = mongoose.connection.readyState === 1;
 
     // Check existing in SQLite first
@@ -1171,16 +1177,25 @@ export const createAdminAnnouncement = async (req: AuthenticatedRequest, res: Re
 
     // 2. Persist to SQLite store
     try {
+      let sqliteAuthorId = adminId;
+      const sqliteAdmin = db.prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE OR id = ?").get(adminEmail, adminId) as any;
+      if (sqliteAdmin) {
+        sqliteAuthorId = sqliteAdmin.id;
+      } else {
+        const fallbackAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get() as any;
+        if (fallbackAdmin) sqliteAuthorId = fallbackAdmin.id;
+      }
+
       db.exec('BEGIN TRANSACTION;');
       db.prepare(`
         INSERT INTO announcements (id, author_id, title, message, audience, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(annId, adminId, title.trim(), message.trim(), audience, nowIso);
+      `).run(annId, sqliteAuthorId, title.trim(), message.trim(), audience, nowIso);
 
       db.prepare(`
         INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
         VALUES (?, ?, 'ANNOUNCEMENT_PUBLISHED', ?, 'announcement', ?, ?)
-      `).run(`act_${Date.now()}`, adminId, `Published announcement "${title.trim()}" for ${audience}`, annId, nowIso);
+      `).run(`act_${Date.now()}`, sqliteAuthorId, `Published announcement "${title.trim()}" for ${audience}`, annId, nowIso);
 
       let userQuery = "SELECT id FROM users WHERE status = 'active'";
       if (audience === 'students') userQuery += " AND role = 'student'";

@@ -187,13 +187,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = async (credentials: { email: string; password: string }) => {
     try {
       const data = await api.auth.login(credentials);
+      const userWithFlag = {
+        ...data.user,
+        mustChangePassword: Boolean(data.mustChangePassword)
+      };
       localStorage.setItem('pm_auth_token', data.token);
-      localStorage.setItem('pm_user', JSON.stringify(data.user));
-      setCurrentUser(data.user);
-
-      if (data.mustChangePassword) {
-        return { success: true, mustChangePassword: true, user: data.user, token: data.token };
-      }
+      localStorage.setItem('pm_user', JSON.stringify(userWithFlag));
+      setCurrentUser(userWithFlag);
 
       const targetPath = data.redirectUrl || (data.user.role === 'admin' ? '/admin/dashboard' : data.user.role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard');
       window.history.pushState({}, '', targetPath);
@@ -207,7 +207,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       showToast(`Welcome back, ${data.user.name}!`, 'success');
-      return { success: true };
+      return { success: true, mustChangePassword: Boolean(data.mustChangePassword), user: userWithFlag };
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.message || 'Login failed. Please verify credentials.';
       return { success: false, message };
