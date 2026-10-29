@@ -108,7 +108,8 @@ graph TD
 project-mentors/
 ├── api/                           # Vercel serverless integration entrypoint
 │   └── index.js
-├── client/                        # React SPA (Vite + TypeScript)
+├── frontend/                      # React SPA (Vite + TypeScript)
+│   ├── public/                    # Static web assets
 │   ├── src/
 │   │   ├── api/                   # Typed Axios API client & endpoints
 │   │   ├── components/            # Layouts, Navbars, Sidebars, Donut charts, Modals
@@ -123,7 +124,7 @@ project-mentors/
 │   └── vite.config.ts
 ├── docs/                          # Architecture blueprints & specs
 │   └── ARCHITECTURE.md
-├── server/                        # Express REST Backend (TypeScript)
+├── backend/                       # Express REST Backend (TypeScript)
 │   ├── src/
 │   │   ├── config/                # Database connection & MongoDB diagnostics
 │   │   ├── controllers/           # Admin, Auth, Mentor, Student, Team, Review controllers
@@ -135,7 +136,7 @@ project-mentors/
 │   │   ├── services/              # Deterministic Risk Engine & Gemini AI service
 │   │   ├── app.ts                 # Express app setup, CORS, error handling
 │   │   └── server.ts              # Server startup & port binding
-│   ├── render.yaml                # Render cloud deployment blueprint
+│   ├── data/                      # Local SQLite persistence & fallback storage
 │   └── tsconfig.json
 ├── PROJECT_REPORT.md              # Complete Project Analysis & Documentation
 ├── README.md                      # Overview & Curriculum Guide

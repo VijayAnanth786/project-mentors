@@ -2,7 +2,7 @@ services:
   - type: web
     name: project-mentors-api
     runtime: node
-    rootDir: server
+    rootDir: backend
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:

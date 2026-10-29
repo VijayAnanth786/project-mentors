@@ -11,7 +11,7 @@ project-mentor/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── API_SPECIFICATION.md
-├── server/
+├── backend/
 │   ├── src/
 │   │   ├── config/
 │   │   │   └── db.ts
@@ -27,7 +27,6 @@ project-mentor/
 │   │   │   ├── User.ts
 │   │   │   ├── Team.ts
 │   │   │   ├── Project.ts
-│   │   │   ├── Milestone.ts
 │   │   │   ├── Progress.ts
 │   │   │   └── Review.ts
 │   │   ├── routes/
@@ -38,10 +37,12 @@ project-mentor/
 │   │   │   ├── riskService.ts
 │   │   │   └── geminiService.ts
 │   │   └── server.ts
+│   ├── data/
 │   ├── .env.example
 │   ├── package.json
 │   └── tsconfig.json
-├── client/
+├── frontend/
+│   ├── public/
 │   ├── src/
 │   │   ├── api/
 │   │   │   └── apiClient.ts

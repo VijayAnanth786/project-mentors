@@ -147,19 +147,23 @@ This version emphasizes a demo experience with role-based login, dashboard navig
 ## Project Structure
 
 ```text
-project-pulse/
-├── client/
+project-mentors/
+├── frontend/
+│   ├── public/
 │   └── src/
+│       ├── api/
 │       ├── context/
-│       │   └── AppContext.tsx
+│       ├── hooks/
 │       ├── types/
-│       │   └── index.ts
 │       └── views/
-│           ├── LoginView.tsx
-│           ├── StudentDashboardView.tsx
-│           ├── AdminDashboardView.tsx
-│           └── MentorCreationView.tsx
-├── server/
+├── backend/
+│   ├── src/
+│   │   ├── config/
+│   │   ├── controllers/
+│   │   ├── middleware/
+│   │   ├── models/
+│   │   └── routes/
+│   └── data/
 ├── docs/
 ├── package.json
 └── README.md
