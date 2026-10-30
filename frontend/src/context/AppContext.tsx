@@ -38,6 +38,9 @@ interface AppContextType {
   submitWeeklyProgress: (payload: any) => Promise<boolean>;
   createTeam: (teamData: { name: string; projectTitle: string; description?: string; yearCohort?: string; techStack?: string[]; githubUrl?: string }) => Promise<any>;
   joinTeam: (teamId: string) => Promise<any>;
+  addTeamMember: (payload: { studentEmail: string; studentName?: string }) => Promise<any>;
+  removeTeamMember: (memberId: string) => Promise<any>;
+  getAvailableStudents: () => Promise<any[]>;
   refreshStudentData: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   users: User[];
@@ -123,7 +126,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mentorName: data.team.mentorName || 'Unassigned',
           mentorId: data.team.mentor_id || '',
           members: data.team.members || [],
-          milestones: data.project.milestones || []
+          milestones: data.project.milestones || [],
+          teamRole: data.team.role,
+          isLeader: data.team.role === 'Team Leader'
         });
       } else {
         setCurrentProject(null);
@@ -171,7 +176,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status: t.projectStatus || 'ON_TRACK',
             progressPercentage: t.progressPercentage || 0,
             leaderName: t.leaderName,
-            mentorName: t.mentorName
+            mentorName: t.mentorName,
+            isMyTeam: t.isMyTeam
           }))
         );
       }
@@ -380,6 +386,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const addTeamMember = async (payload: { studentEmail: string; studentName?: string }) => {
+    if (!currentProject?.teamId) {
+      showToast('No active team project found.', 'error');
+      return;
+    }
+    try {
+      const res = await api.student.addTeamMember(currentProject.teamId, payload);
+      showToast(res.message || 'Student added to team successfully!', 'success');
+      await refreshStudentData();
+      await refreshTeams();
+      return res;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to add student to team.';
+      showToast(msg, 'error');
+      throw err;
+    }
+  };
+
+  const removeTeamMember = async (memberId: string) => {
+    if (!currentProject?.teamId) return;
+    try {
+      const res = await api.student.removeTeamMember(currentProject.teamId, memberId);
+      showToast(res.message || 'Team member removed.', 'success');
+      await refreshStudentData();
+      await refreshTeams();
+      return res;
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Failed to remove team member.';
+      showToast(msg, 'error');
+      throw err;
+    }
+  };
+
+  const getAvailableStudents = async () => {
+    try {
+      return await api.student.getAvailableStudents();
+    } catch {
+      return [];
+    }
+  };
+
   const applySession = useCallback((user: User, token: string) => {
     localStorage.setItem('pm_auth_token', token);
     localStorage.setItem('pm_user', JSON.stringify(user));
@@ -406,6 +453,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submitWeeklyProgress,
         createTeam,
         joinTeam,
+        addTeamMember,
+        removeTeamMember,
+        getAvailableStudents,
         refreshStudentData,
         refreshTeams,
         users

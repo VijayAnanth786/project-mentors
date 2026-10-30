@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Users, ChevronRight, X, Loader2, Sparkles, UserPlus } from 'lucide-react';
+import { Plus, Search, Users, ChevronRight, X, Loader2, UserPlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { AddMemberModal } from '../components/AddMemberModal';
 
 export const MyTeamsView: React.FC = () => {
-  const { teams, createTeam, joinTeam, refreshTeams, setActiveView, currentProject } = useApp();
+  const { teams, createTeam, joinTeam, refreshTeams, setActiveView, currentProject, currentUser } = useApp();
   const [selectedCohort, setSelectedCohort] = useState<'1st Year' | '2nd Year' | '3rd Year' | 'All'>('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form state for team creation
@@ -66,6 +68,8 @@ export const MyTeamsView: React.FC = () => {
     } catch {}
   };
 
+  const isLeader = Boolean(currentProject?.isLeader || currentProject?.teamRole === 'Team Leader');
+
   return (
     <div className="p-8 space-y-8 max-w-7xl mx-auto">
       {/* Header with Title and Create Team CTA */}
@@ -77,13 +81,25 @@ export const MyTeamsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all self-start sm:self-auto cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Team</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          {currentProject && isLeader && (
+            <button
+              onClick={() => setShowAddMemberModal(true)}
+              className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200 shadow-xs transition-all cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>+ Add Teammate</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all self-start sm:self-auto cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Team</span>
+          </button>
+        </div>
       </div>
 
       {/* Cohort Tabs and Search Bar */}
@@ -209,6 +225,18 @@ export const MyTeamsView: React.FC = () => {
 
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold text-slate-500">{team.progressPercentage}%</span>
+                    {isCurrentTeam && isLeader && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowAddMemberModal(true);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-[11px] font-bold transition-colors inline-flex items-center space-x-1 cursor-pointer"
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        <span>+ Member</span>
+                      </button>
+                    )}
                     {!isCurrentTeam && !currentProject && (
                       <button
                         onClick={(e) => handleJoinTeam(team.id, e)}
@@ -346,6 +374,18 @@ export const MyTeamsView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Add Member Modal */}
+      {currentProject && (
+        <AddMemberModal
+          isOpen={showAddMemberModal}
+          onClose={() => setShowAddMemberModal(false)}
+          teamId={currentProject.teamId}
+          teamName={currentProject.teamName}
+          members={currentProject.members || []}
+          isLeader={isLeader}
+        />
       )}
     </div>
   );

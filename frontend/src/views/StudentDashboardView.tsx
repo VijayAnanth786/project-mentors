@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Laptop,
   Github,
@@ -21,14 +21,18 @@ import {
   GraduationCap,
   Building2,
   BookOpen,
-  ShieldCheck
+  ShieldCheck,
+  UserPlus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { DonutProgress } from '../components/DonutProgress';
+import { AddMemberModal } from '../components/AddMemberModal';
 
 export const StudentDashboardView: React.FC = () => {
   const { currentUser, currentProject, submissions, setActiveView, refreshStudentData } = useApp();
   const latestSub = submissions[0];
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const isLeader = Boolean(currentProject?.isLeader || currentProject?.teamRole === 'Team Leader');
 
   useEffect(() => {
     refreshStudentData();
@@ -100,6 +104,15 @@ export const StudentDashboardView: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2">
+            {currentProject && isLeader && (
+              <button
+                onClick={() => setShowAddMemberModal(true)}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 shadow-xs transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+ Add Teammate</span>
+              </button>
+            )}
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>Account Active</span>
@@ -138,9 +151,19 @@ export const StudentDashboardView: React.FC = () => {
               <Users className="w-3.5 h-3.5 text-emerald-600" />
               <span className="text-[11px] font-semibold">Team Status</span>
             </div>
-            <span className="font-bold text-slate-800 truncate block text-xs">
-              {currentProject ? currentProject.teamName : 'No Team Assigned'}
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 truncate block text-xs">
+                {currentProject ? currentProject.teamName : 'No Team Assigned'}
+              </span>
+              {currentProject && (
+                <button
+                  onClick={() => setShowAddMemberModal(true)}
+                  className="text-[10px] text-blue-600 hover:underline font-bold cursor-pointer"
+                >
+                  {isLeader ? '+ Add' : 'Roster'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -183,9 +206,13 @@ export const StudentDashboardView: React.FC = () => {
 
               {/* Badges strip */}
               <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
-                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700">
+                <div
+                  onClick={() => setShowAddMemberModal(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors cursor-pointer"
+                  title="View team members"
+                >
                   <Users className="w-3.5 h-3.5 text-slate-500" />
-                  <span>{currentProject.teamName}</span>
+                  <span>{currentProject.teamName} ({currentProject.members?.length || 1})</span>
                 </div>
                 <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700">
                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
@@ -634,6 +661,16 @@ export const StudentDashboardView: React.FC = () => {
           )}
         </div>
       </div>
+      {currentProject && (
+        <AddMemberModal
+          isOpen={showAddMemberModal}
+          onClose={() => setShowAddMemberModal(false)}
+          teamId={currentProject.teamId}
+          teamName={currentProject.teamName}
+          members={currentProject.members || []}
+          isLeader={isLeader}
+        />
+      )}
     </div>
   );
 };

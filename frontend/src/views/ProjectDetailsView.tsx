@@ -10,15 +10,18 @@ import {
   Sparkles,
   Users,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  UserPlus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { AddMemberModal } from '../components/AddMemberModal';
 
 export const ProjectDetailsView: React.FC = () => {
   const { currentProject, setActiveView, currentUser, submissions } = useApp();
 
   const [activeTab, setActiveTab] = useState<'Overview' | 'Team' | 'Progress' | 'Timeline' | 'Files' | 'Reviews'>('Overview');
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
   if (!currentProject) {
     return (
@@ -48,6 +51,8 @@ export const ProjectDetailsView: React.FC = () => {
       </div>
     );
   }
+
+  const isLeader = Boolean(currentProject?.isLeader || currentProject?.teamRole === 'Team Leader');
 
   return (
     <div className="p-8 space-y-8 max-w-7xl mx-auto">
@@ -108,7 +113,6 @@ export const ProjectDetailsView: React.FC = () => {
             </button>
           </div>
         </div>
-
 
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-100 text-xs font-bold text-slate-500 gap-6">
@@ -188,10 +192,21 @@ export const ProjectDetailsView: React.FC = () => {
           {/* Right Col: Team Members & Actions */}
           <div className="space-y-6">
             <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 space-y-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <Users className="w-4 h-4 text-blue-600" />
-                <span>Team Members</span>
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                  <Users className="w-4 h-4 text-blue-600" />
+                  <span>Team Members</span>
+                </h3>
+                {isLeader && (
+                  <button
+                    onClick={() => setShowAddMemberModal(true)}
+                    className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-[11px] font-bold transition-colors inline-flex items-center space-x-1 cursor-pointer"
+                  >
+                    <UserPlus className="w-3 h-3" />
+                    <span>+ Add</span>
+                  </button>
+                )}
+              </div>
 
               <div className="space-y-3">
                 {(currentProject.members || []).map((member) => (
@@ -240,32 +255,13 @@ export const ProjectDetailsView: React.FC = () => {
                 <p className="text-xs text-slate-500">Project health summary & pedagogical advice</p>
               </div>
             </div>
-
-            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 text-xs text-slate-700 space-y-3">
-              <div>
-                <span className="font-bold text-slate-900 block mb-1">Executive Summary:</span>
-                <p className="leading-relaxed">
-                  {currentProject.title} by {currentProject.teamName || 'Team'} is currently {currentProject.progressPercentage}% complete across {currentProject.milestones?.length || 4} defined sprint milestones.
-                  {submissions.length > 0
-                    ? ` Latest report (Week ${submissions[0].weekNumber}) is marked ${submissions[0].status.toLowerCase()}.`
-                    : ' Awaiting the first sprint progress report from the team.'}
-                </p>
-              </div>
-
-              <div>
-                <span className="font-bold text-slate-900 block mb-1">Mentor Action Recommendation:</span>
-                <p className="leading-relaxed bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900 font-semibold">
-                  {submissions.length > 0 && submissions[0].blockers.length > 0
-                    ? `Priority Advisory: Address reported blocker "${submissions[0].blockers[0]}" in the upcoming review session.`
-                    : 'Advisory: Maintain consistent weekly submission cadence and push clean commits to the repository.'}
-                </p>
-              </div>
-            </div>
-
+            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              Project is proceeding well with <strong>{currentProject.progressPercentage}%</strong> completion rate. Next focus should be on system integration and unit test coverage ahead of upcoming milestone review.
+            </p>
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setShowAiModal(false)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
+                className="px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-xl hover:bg-slate-900 cursor-pointer"
               >
                 Close
               </button>
@@ -273,7 +269,18 @@ export const ProjectDetailsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Add Member Modal */}
+      {currentProject && (
+        <AddMemberModal
+          isOpen={showAddMemberModal}
+          onClose={() => setShowAddMemberModal(false)}
+          teamId={currentProject.teamId}
+          teamName={currentProject.teamName}
+          members={currentProject.members || []}
+          isLeader={isLeader}
+        />
+      )}
     </div>
   );
 };
-

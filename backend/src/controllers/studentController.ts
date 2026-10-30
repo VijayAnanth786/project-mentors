@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import { User } from '../models/User';
@@ -161,7 +162,7 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
     try {
       membership = db.prepare(`
         SELECT tm.team_id, tm.role as team_role,
-               t.id as actual_team_id, t.name as team_name, t.year_cohort, t.department, t.mentor_id, t.project_id,
+               t.id as actual_team_id, t.name as team_name, t.year_cohort, t.department, t.mentor_id, t.project_id, t.leader_id as team_leader_id,
                p.title as project_title, p.description as project_description, p.tech_stack,
                p.repo_url, p.progress, p.status as project_status, p.deadline as project_deadline,
                mu.name as mentor_name, mu.email as mentor_email
@@ -220,7 +221,26 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
         avatar: studentProfile.avatar,
         role: 'Team Leader'
       }];
+    } else {
+      const hasLeader = members.some((m) => m.role === 'Team Leader' || m.id === membership.team_leader_id);
+      if (!hasLeader && membership.team_leader_id) {
+        try {
+          const leaderRow = db.prepare('SELECT id, name, email, avatar FROM users WHERE id = ?').get(membership.team_leader_id) as any;
+          if (leaderRow) {
+            members.unshift({ ...leaderRow, role: 'Team Leader' });
+          }
+        } catch {}
+      }
     }
+
+    const isCurrentLeader = membership.team_leader_id === studentId ||
+      (studentEmail && (() => {
+        try {
+          const u = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(studentEmail) as any;
+          return u?.id === membership.team_leader_id;
+        } catch { return false; }
+      })());
+    const resolvedTeamRole = isCurrentLeader ? 'Team Leader' : (membership.team_role || 'Member');
 
     // Submissions
     const submissions = db.prepare(`
@@ -276,7 +296,7 @@ export const getStudentDashboard = async (req: AuthenticatedRequest, res: Respon
           mentor_id: membership.mentor_id || '',
           mentorName: membership.mentor_name || 'Unassigned Faculty',
           mentorEmail: membership.mentor_email || '',
-          role: membership.team_role || 'Team Leader',
+          role: resolvedTeamRole,
           members
         },
         project: {
@@ -354,12 +374,17 @@ export const submitStudentWeeklyProgress = async (req: AuthenticatedRequest, res
     }
 
     // Dual-store: SQLite submission
+    const studentEmail = req.user?.email ? req.user.email.toLowerCase() : '';
     const membership = db.prepare(`
-      SELECT tm.team_id, t.project_id, t.mentor_id, t.name as team_name
-      FROM team_members tm
-      JOIN teams t ON tm.team_id = t.id
+      SELECT t.id as team_id, t.project_id, t.mentor_id, t.name as team_name
+      FROM teams t
+      LEFT JOIN team_members tm ON tm.team_id = t.id
       WHERE tm.user_id = ?
-    `).get(studentId) as any;
+         OR t.leader_id = ?
+         OR tm.user_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)
+         OR t.leader_id IN (SELECT id FROM users WHERE email = ? COLLATE NOCASE)
+      LIMIT 1
+    `).get(studentId, studentId, studentEmail, studentEmail) as any;
 
     if (!membership && !isMongoReady) {
       res.status(400).json({ success: false, message: 'You must be part of a team to submit progress.' });
@@ -723,6 +748,268 @@ export const joinStudentTeam = async (req: AuthenticatedRequest, res: Response):
     }
 
     res.json({ success: true, message: `Successfully joined ${teamName}!` });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const addStudentTeamMember = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const requesterId = req.user?.id || '';
+    const requesterEmail = req.user?.email ? req.user.email.toLowerCase() : '';
+    const { teamId } = req.params;
+    const { studentEmail, studentName } = req.body;
+
+    if (!studentEmail || typeof studentEmail !== 'string' || !studentEmail.includes('@')) {
+      res.status(400).json({ success: false, message: 'A valid student email address is required.' });
+      return;
+    }
+
+    const normalizedEmail = studentEmail.trim().toLowerCase();
+    const isMongoReady = mongoose.connection.readyState === 1;
+
+    // Verify requester is Team Leader (or mentor/admin)
+    let isAuthorized = req.user?.role === 'admin' || req.user?.role === 'mentor';
+    let teamName = 'Team';
+
+    if (isMongoReady && mongoose.Types.ObjectId.isValid(teamId)) {
+      try {
+        const teamDoc = await Team.findById(teamId);
+        if (teamDoc) {
+          teamName = teamDoc.name;
+          const leaderIdStr = teamDoc.leaderId.toString();
+          if (leaderIdStr === requesterId || req.user?.role === 'admin') {
+            isAuthorized = true;
+          }
+        }
+      } catch {}
+    }
+
+    try {
+      const sqlTeam = db.prepare('SELECT id, name, leader_id FROM teams WHERE id = ?').get(teamId) as any;
+      if (sqlTeam) {
+        teamName = sqlTeam.name;
+        if (sqlTeam.leader_id === requesterId || isAuthorized) {
+          isAuthorized = true;
+        } else if (requesterEmail) {
+          const leaderUser = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(requesterEmail) as any;
+          if (leaderUser && leaderUser.id === sqlTeam.leader_id) {
+            isAuthorized = true;
+          }
+        }
+      }
+    } catch {}
+
+    if (!isAuthorized) {
+      res.status(403).json({
+        success: false,
+        message: 'Only the Team Leader or Faculty Mentor can add students to this team.'
+      });
+      return;
+    }
+
+    // 1. Dual-store: Mongo
+    let mongoAddedId: string | null = null;
+    if (isMongoReady && mongoose.Types.ObjectId.isValid(teamId)) {
+      try {
+        let studentUser = await User.findOne({ email: normalizedEmail });
+        if (!studentUser) {
+          const tempHash = await bcrypt.hash('student123', 10);
+          studentUser = await User.create({
+            name: studentName?.trim() || normalizedEmail.split('@')[0],
+            email: normalizedEmail,
+            passwordHash: tempHash,
+            role: 'STUDENT',
+            status: 'ACTIVE',
+            department: req.user?.department || 'Computer Science',
+            year: req.user?.year || '3rd Year',
+            college: req.user?.college || 'College of Engineering & Technology',
+            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
+            mustChangePassword: false
+          });
+        }
+
+        mongoAddedId = studentUser._id.toString();
+
+        await Team.findByIdAndUpdate(teamId, {
+          $addToSet: { memberIds: studentUser._id }
+        });
+      } catch (mErr) {
+        console.warn('[MongoDB addStudentTeamMember notice]', mErr);
+      }
+    }
+
+    // 2. Dual-store: SQLite
+    try {
+      let sqlUser = db.prepare('SELECT id, name, email FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+      if (!sqlUser) {
+        const newId = mongoAddedId || `usr_s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const tempHash = await bcrypt.hash('student123', 10);
+        db.prepare(`
+          INSERT INTO users (id, name, email, password_hash, role, status, avatar)
+          VALUES (?, ?, ?, ?, 'student', 'active', ?)
+        `).run(
+          newId,
+          studentName?.trim() || normalizedEmail.split('@')[0],
+          normalizedEmail,
+          tempHash,
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80'
+        );
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO student_profiles (id, user_id, department, year_cohort)
+            VALUES (?, ?, ?, ?)
+          `).run(`sp_${newId}`, newId, req.user?.department || 'Computer Science', req.user?.year || '3rd Year');
+        } catch {}
+        sqlUser = { id: newId, name: studentName?.trim() || normalizedEmail.split('@')[0], email: normalizedEmail };
+      }
+
+      const alreadyInTeam = db.prepare('SELECT id FROM team_members WHERE team_id = ? AND user_id = ?').get(teamId, sqlUser.id) as any;
+      if (!alreadyInTeam) {
+        const tmId = `tm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        db.prepare(`
+          INSERT INTO team_members (id, team_id, user_id, role, created_at)
+          VALUES (?, ?, ?, 'Member', CURRENT_TIMESTAMP)
+        `).run(tmId, teamId, sqlUser.id);
+      }
+
+      // Log event
+      try {
+        db.prepare(`
+          INSERT INTO activity_events (id, user_id, action_type, description, target_type, target_id, created_at)
+          VALUES (?, ?, 'MEMBER_ADDED', ?, 'team', ?, CURRENT_TIMESTAMP)
+        `).run(`act_${Date.now()}`, requesterId, `${sqlUser.name} joined ${teamName}`, teamId);
+      } catch {}
+    } catch (sqlErr) {
+      console.warn('[SQLite addStudentTeamMember notice]', sqlErr);
+    }
+
+    res.json({
+      success: true,
+      message: `Student (${normalizedEmail}) has been successfully added to ${teamName}!`
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const removeStudentTeamMember = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const requesterId = req.user?.id || '';
+    const requesterEmail = req.user?.email ? req.user.email.toLowerCase() : '';
+    const { teamId, memberId } = req.params;
+    const isMongoReady = mongoose.connection.readyState === 1;
+
+    // Verify requester is Team Leader (or admin)
+    let isAuthorized = req.user?.role === 'admin';
+    if (isMongoReady && mongoose.Types.ObjectId.isValid(teamId)) {
+      try {
+        const teamDoc = await Team.findById(teamId);
+        if (teamDoc && teamDoc.leaderId.toString() === requesterId) {
+          isAuthorized = true;
+        }
+      } catch {}
+    }
+
+    try {
+      const sqlTeam = db.prepare('SELECT id, leader_id FROM teams WHERE id = ?').get(teamId) as any;
+      if (sqlTeam) {
+        if (sqlTeam.leader_id === requesterId || isAuthorized) {
+          isAuthorized = true;
+        } else if (requesterEmail) {
+          const leaderUser = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(requesterEmail) as any;
+          if (leaderUser && leaderUser.id === sqlTeam.leader_id) {
+            isAuthorized = true;
+          }
+        }
+        if (sqlTeam.leader_id === memberId) {
+          res.status(400).json({ success: false, message: 'Cannot remove the Team Leader.' });
+          return;
+        }
+      }
+    } catch {}
+
+    if (!isAuthorized) {
+      res.status(403).json({ success: false, message: 'Only the Team Leader can remove members.' });
+      return;
+    }
+
+    // Dual-store: Mongo pull
+    if (isMongoReady && mongoose.Types.ObjectId.isValid(teamId)) {
+      try {
+        await Team.findByIdAndUpdate(teamId, {
+          $pull: { memberIds: memberId }
+        });
+      } catch {}
+    }
+
+    // Dual-store: SQLite delete
+    try {
+      db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, memberId);
+    } catch {}
+
+    res.json({ success: true, message: 'Team member removed successfully.' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAvailableStudents = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const isMongoReady = mongoose.connection.readyState === 1;
+    let students: any[] = [];
+    const seenEmails = new Set<string>();
+
+    if (isMongoReady) {
+      try {
+        const users = await User.find({ role: 'STUDENT', status: 'ACTIVE' }).select('name email avatar department year college');
+        for (const u of users) {
+          seenEmails.add(u.email.toLowerCase());
+          const hasTeam = await Team.exists({
+            $or: [{ leaderId: u._id }, { memberIds: u._id }]
+          });
+          students.push({
+            id: u._id.toString(),
+            name: u.name,
+            email: u.email,
+            avatar: u.avatar,
+            department: u.department || 'Computer Science',
+            year: u.year || '3rd Year',
+            hasTeam: Boolean(hasTeam)
+          });
+        }
+      } catch {}
+    }
+
+    try {
+      const sqlUsers = db.prepare(`
+        SELECT u.id, u.name, u.email, u.avatar,
+               sp.department, sp.year_cohort as year,
+               (SELECT COUNT(*) FROM team_members tm WHERE tm.user_id = u.id) as inTeamMembers,
+               (SELECT COUNT(*) FROM teams t WHERE t.leader_id = u.id) as inLeader
+        FROM users u
+        LEFT JOIN student_profiles sp ON sp.user_id = u.id
+        WHERE u.role = 'student' AND u.status = 'active'
+        ORDER BY u.name ASC
+      `).all() as any[];
+
+      for (const su of sqlUsers) {
+        if (!seenEmails.has((su.email || '').toLowerCase())) {
+          seenEmails.add((su.email || '').toLowerCase());
+          students.push({
+            id: su.id,
+            name: su.name,
+            email: su.email,
+            avatar: su.avatar,
+            department: su.department || 'Computer Science',
+            year: su.year || '3rd Year',
+            hasTeam: (su.inTeamMembers > 0 || su.inLeader > 0)
+          });
+        }
+      }
+    } catch {}
+
+    res.json({ success: true, count: students.length, data: students });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

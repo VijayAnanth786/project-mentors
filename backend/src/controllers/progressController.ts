@@ -29,14 +29,21 @@ export const submitWeeklyProgress = async (
       return;
     }
 
-    // Layer 3 Verification: Team leader ownership check
+    // Layer 3 Verification: Team membership check (Team Leader or Member)
     const team = await Team.findById(teamId);
-    if (team && team.leaderId.toString() !== req.user?.id) {
-      res.status(403).json({
-        success: false,
-        message: 'Access Denied: Only designated Team Leaders may file weekly reports.'
-      });
-      return;
+    if (team) {
+      const isLeader = team.leaderId.toString() === req.user?.id;
+      const isMember = (team.memberIds || []).some(
+        (m: any) => (m._id ? m._id.toString() : m.toString()) === req.user?.id
+      );
+      const isPrivileged = req.user?.role === 'admin' || req.user?.role === 'mentor';
+      if (!isLeader && !isMember && !isPrivileged) {
+        res.status(403).json({
+          success: false,
+          message: 'Access Denied: You must be an assigned member of this team to file weekly reports.'
+        });
+        return;
+      }
     }
 
     const submission = await Progress.create({

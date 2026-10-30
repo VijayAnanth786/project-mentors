@@ -23,11 +23,17 @@ export const verifyTeamLeaderOwnership = async (
       return;
     }
 
-    // Strict ownership verification: only designated Team Leader can submit official progress
-    if (team.leaderId.toString() !== userId) {
+    // Allow Team Leader or any assigned team member
+    const isLeader = team.leaderId.toString() === userId;
+    const isMember = (team.memberIds || []).some(
+      (m: any) => (m._id ? m._id.toString() : m.toString()) === userId
+    );
+    const isPrivileged = req.user?.role === 'admin' || req.user?.role === 'mentor';
+
+    if (!isLeader && !isMember && !isPrivileged) {
       res.status(403).json({
         success: false,
-        message: 'Forbidden: Only the assigned Team Leader may submit weekly progress reports'
+        message: 'Forbidden: You must be an assigned member of this team to submit weekly progress reports'
       });
       return;
     }

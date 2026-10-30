@@ -238,7 +238,18 @@ export const api = {
     joinTeam: async (teamId: string) => {
       const res = await apiClient.post(`/student/teams/${teamId}/join`);
       return res.data;
+    },
+    addTeamMember: async (teamId: string, payload: { studentEmail: string; studentName?: string }) => {
+      const res = await apiClient.post(`/student/teams/${teamId}/members`, payload);
+      return res.data;
+    },
+    removeTeamMember: async (teamId: string, memberId: string) => {
+      const res = await apiClient.delete(`/student/teams/${teamId}/members/${memberId}`);
+      return res.data;
+    },
+    getAvailableStudents: async () => {
+      const res = await apiClient.get('/student/available-students');
+      return res.data.data;
     }
   }
 };
-

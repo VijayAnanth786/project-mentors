@@ -29,6 +29,7 @@ export interface Milestone {
 export interface TeamMember {
   id: string;
   name: string;
+  email?: string;
   role: 'Team Leader' | 'Member';
   avatar?: string;
 }
@@ -51,6 +52,9 @@ export interface Project {
   status: ProjectStatus;
   milestones: Milestone[];
   members: TeamMember[];
+  isLeader?: boolean;
+  teamRole?: string;
+  leaderId?: string;
 }
 
 export interface ProgressSubmission {
@@ -90,7 +94,6 @@ export interface TeamCardData {
   mentorName?: string;
   isMyTeam?: number;
 }
-
 
 export interface Mentor {
   id: string;
