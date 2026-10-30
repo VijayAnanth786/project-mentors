@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { useMongo } from '../config/storageMode';
+import { connectDB } from '../config/db';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import {
@@ -270,7 +271,8 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
 export const getAdminStudents = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { search, status } = req.query;
-    const isMongoReady = mongoose.connection.readyState === 1;
+    try { await connectDB(); } catch {}
+    const isMongoReady = useMongo();
 
     if (isMongoReady) {
       const filter: any = { role: 'STUDENT' };
@@ -300,6 +302,30 @@ export const getAdminStudents = async (req: AuthenticatedRequest, res: Response)
         team_name: null,
         team_role: null
       }));
+
+      // Also merge any SQLite-only students (e.g. seeded demo data) not in MongoDB
+      const sqliteStudents = db.prepare(`
+        SELECT u.id, u.name, u.email, u.status, u.avatar, u.created_at,
+               sp.department, sp.year_cohort, sp.roll_number
+        FROM users u
+        LEFT JOIN student_profiles sp ON u.id = sp.user_id
+        WHERE u.role = 'student'
+      `).all() as any[];
+      const mongoEmails = new Set(formatted.map((s: any) => s.email.toLowerCase()));
+      for (const row of sqliteStudents) {
+        if (!mongoEmails.has((row.email || '').toLowerCase())) {
+          formatted.push({
+            id: row.id, name: row.name, email: row.email,
+            status: String(row.status || 'active').toLowerCase(),
+            avatar: row.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
+            created_at: row.created_at,
+            department: row.department || 'Computer Science',
+            year_cohort: row.year_cohort || '1st Year',
+            roll_number: row.roll_number || 'N/A',
+            team_id: null, team_name: null, team_role: null
+          });
+        }
+      }
 
       res.json({ success: true, count: formatted.length, data: formatted });
       return;
@@ -376,6 +402,7 @@ export const updateStudentStatus = async (req: AuthenticatedRequest, res: Respon
 
 export const getAdminMentors = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    try { await connectDB(); } catch {}
     const isMongoReady = useMongo();
     const mentors: any[] = [];
 
@@ -429,6 +456,30 @@ export const getAdminMentors = async (req: AuthenticatedRequest, res: Response):
       }
     }
 
+    // Dual-read: also include SQLite-only mentors not in MongoDB
+    if (isMongoReady) {
+      const sqliteMentors = db.prepare(`
+        SELECT u.id, u.name, u.email, u.status, u.avatar, u.created_at,
+               u.must_change_password, u.temp_password_expires_at,
+               COALESCE(mp.department, 'Computer Science') as department,
+               mp.title, mp.bio, mp.phone, 0 as team_count
+        FROM users u
+        LEFT JOIN mentor_profiles mp ON u.id = mp.user_id
+        WHERE u.role = 'mentor'
+      `).all() as any[];
+      const existingEmails = new Set(mentors.map((m: any) => m.email.toLowerCase()));
+      for (const row of sqliteMentors) {
+        if (!existingEmails.has((row.email || '').toLowerCase())) {
+          mentors.push({
+            ...row,
+            status: String(row.status || 'active').toLowerCase(),
+            mustChangePassword: Boolean(row.must_change_password),
+            temporaryPasswordExpiresAt: row.temp_password_expires_at || null
+          });
+        }
+      }
+    }
+
     res.json({ success: true, count: mentors.length, data: mentors });
   } catch (error: any) {
     res.status(500).json({ success: false, message: 'Unable to load mentors.' });
@@ -447,6 +498,7 @@ const temporaryPasswordExpiry = (): Date => {
 
 export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    try { await connectDB(); } catch {}
     const { name, email, department } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -528,6 +580,27 @@ export const addAdminMentor = async (req: AuthenticatedRequest, res: Response): 
       } catch (writeErr) {
         try { db.exec('ROLLBACK'); } catch {}
         throw writeErr;
+      }
+    }
+
+    // Mirror the new mentor into SQLite so it's visible even when the next
+    // request hits a serverless instance without an active MongoDB connection.
+    if (isMongoReady) {
+      try {
+        const existsInSqlite = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+        if (!existsInSqlite) {
+          db.prepare(`
+            INSERT INTO users (id, name, email, password_hash, role, status, avatar,
+              must_change_password, temp_password_issued_at, temp_password_expires_at, temp_password_attempts)
+            VALUES (?, ?, ?, ?, 'mentor', 'active', ?, 1, CURRENT_TIMESTAMP, ?, 0)
+          `).run(mentorId, normalizedName, normalizedEmail, passwordHash, avatar, expiresAt.toISOString());
+          try {
+            db.prepare(`INSERT INTO mentor_profiles (id, user_id, department, title) VALUES (?, ?, ?, 'Faculty Mentor')`)
+              .run(`mp_${mentorId}`, mentorId, normalizedDepartment);
+          } catch {}
+        }
+      } catch (sqlMirrorErr) {
+        console.warn('[Mentor SQLite Mirror Warning]', sqlMirrorErr);
       }
     }
 

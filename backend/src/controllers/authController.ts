@@ -6,6 +6,7 @@ import { User } from '../models/User';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { db } from '../db/database';
 import { useMongo } from '../config/storageMode';
+import { connectDB } from '../config/db';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@gmail\.com$/i;
@@ -101,6 +102,7 @@ const isLocked = (user: any): boolean =>
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
+    try { await connectDB(); } catch {}
     const { name, email, password, department, year, college } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -152,6 +154,22 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         avatar,
         mustChangePassword: false
       });
+
+      // Mirror into SQLite so the user exists on any serverless instance
+      try {
+        const existsInSqlite = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+        if (!existsInSqlite) {
+          const newLocalId = newUser._id.toString();
+          db.prepare(`
+            INSERT INTO users (id, name, email, password_hash, role, status, avatar)
+            VALUES (?, ?, ?, ?, 'student', 'active', ?)
+          `).run(newLocalId, name.trim(), normalizedEmail, passwordHash, avatar);
+          try {
+            db.prepare(`INSERT INTO student_profiles (id, user_id, department, year_cohort) VALUES (?, ?, ?, ?)`)
+              .run(`sp_${newLocalId}`, newLocalId, normalizedDepartment, normalizedYear);
+          } catch {}
+        }
+      } catch {}
 
       res.status(201).json({
         success: true,
@@ -219,17 +237,40 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     let mongoDoc: any = null;
     let sqliteRow: any = null;
 
+    // Ensure MongoDB connection is attempted before deciding which store to use.
+    // On Vercel serverless, the connection may not yet be established on cold start.
+    try { await connectDB(); } catch {}
+
     if (useMongo()) {
+      // Primary: MongoDB Atlas
       mongoDoc = await User.findOne({ email: normalizedEmail }).select('+passwordHash');
       if (mongoDoc) {
         account = fromMongo(mongoDoc);
         passwordHash = mongoDoc.passwordHash;
+      } else {
+        // Dual-read fallback: user may exist in SQLite (seed / legacy data)
+        sqliteRow = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
+        if (sqliteRow) {
+          account = fromSqlite(sqliteRow);
+          passwordHash = sqliteRow.password_hash;
+        }
       }
     } else {
+      // Primary: SQLite
       sqliteRow = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(normalizedEmail) as any;
       if (sqliteRow) {
         account = fromSqlite(sqliteRow);
         passwordHash = sqliteRow.password_hash;
+      } else {
+        // Dual-read fallback: try MongoDB even if useMongo() returned false
+        // (connection may have just established during this request)
+        try {
+          mongoDoc = await User.findOne({ email: normalizedEmail }).select('+passwordHash');
+          if (mongoDoc) {
+            account = fromMongo(mongoDoc);
+            passwordHash = mongoDoc.passwordHash;
+          }
+        } catch {}
       }
     }
 
