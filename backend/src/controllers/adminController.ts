@@ -23,13 +23,30 @@ const escapeRegex = (str: string) => String(str || '').replace(/[.*+?^${}()|[\]\
 
 export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    // Ensure MongoDB connection before deciding which store to use
+    try { await connectDB(); } catch {}
     const isMongoReady = useMongo();
     let totalStudents = 0;
     let totalMentors = 0;
 
     if (isMongoReady) {
+      // MongoDB counts
       totalStudents = await User.countDocuments({ role: 'STUDENT' });
       totalMentors = await User.countDocuments({ role: 'MENTOR' });
+
+      // Add any SQLite-only users that aren't mirrored yet (dual-read)
+      try {
+        const sqliteStudents = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'student'").get() as any;
+        const sqliteMentors = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'mentor'").get() as any;
+        const mongoStudentEmails = new Set((await User.find({ role: 'STUDENT' }).select('email').lean()).map((u: any) => u.email.toLowerCase()));
+        const mongoMentorEmails = new Set((await User.find({ role: 'MENTOR' }).select('email').lean()).map((u: any) => u.email.toLowerCase()));
+        const sqliteStudentRows = db.prepare("SELECT email FROM users WHERE role = 'student'").all() as any[];
+        const sqliteMentorRows = db.prepare("SELECT email FROM users WHERE role = 'mentor'").all() as any[];
+        const extraStudents = sqliteStudentRows.filter((r: any) => !mongoStudentEmails.has((r.email || '').toLowerCase())).length;
+        const extraMentors = sqliteMentorRows.filter((r: any) => !mongoMentorEmails.has((r.email || '').toLowerCase())).length;
+        totalStudents += extraStudents;
+        totalMentors += extraMentors;
+      } catch {}
     } else {
       const sRow = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'student'").get() as any;
       const mRow = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'mentor'").get() as any;
@@ -47,6 +64,14 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
           status: 'active',
           $or: [{ mentorId: null }, { mentorId: { $exists: false } }]
         });
+      } catch {}
+      // Also include SQLite-only teams not yet mirrored
+      try {
+        const sqlActiveTeams = db.prepare("SELECT COUNT(*) as count FROM teams WHERE status = 'active'").get() as any;
+        const mongoTeamNames = new Set((await Team.find({ status: 'active' }).select('name').lean()).map((t: any) => (t.name || '').trim().toLowerCase()));
+        const sqlTeamNames = db.prepare("SELECT name FROM teams WHERE status = 'active'").all() as any[];
+        const extraActive = sqlTeamNames.filter((r: any) => !mongoTeamNames.has((r.name || '').trim().toLowerCase())).length;
+        activeTeams += extraActive;
       } catch {}
     } else {
       try {
@@ -109,29 +134,28 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
       }
     }
 
-    if (!isMongoReady) {
-      try {
-        const sqlTeams = db.prepare(`
-          SELECT t.id, t.name, t.status as team_status, t.year_cohort,
-                 p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
-                 lu.name as leader_name, lu.email as leader_email,
-                 mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email
-          FROM teams t
-          LEFT JOIN projects p ON t.project_id = p.id
-          LEFT JOIN users lu ON t.leader_id = lu.id
-          LEFT JOIN users mu ON t.mentor_id = mu.id
-          ORDER BY t.created_at DESC
-          LIMIT 10
-        `).all() as any[];
+    // Always try SQLite teams too (dual-read) so teams created before mirror are visible
+    try {
+      const sqlTeams = db.prepare(`
+        SELECT t.id, t.name, t.status as team_status, t.year_cohort,
+               p.id as project_id, p.title as project_title, p.progress as project_progress, p.status as project_status,
+               lu.name as leader_name, lu.email as leader_email,
+               mu.id as mentor_id, mu.name as mentor_name, mu.email as mentor_email
+        FROM teams t
+        LEFT JOIN projects p ON t.project_id = p.id
+        LEFT JOIN users lu ON t.leader_id = lu.id
+        LEFT JOIN users mu ON t.mentor_id = mu.id
+        ORDER BY t.created_at DESC
+        LIMIT 10
+      `).all() as any[];
 
-        for (const st of sqlTeams) {
-          if (!seenNames.has(st.name.trim().toLowerCase())) {
-            teams.push(st);
-            seenNames.add(st.name.trim().toLowerCase());
-          }
+      for (const st of sqlTeams) {
+        if (!seenNames.has(st.name.trim().toLowerCase())) {
+          teams.push(st);
+          seenNames.add(st.name.trim().toLowerCase());
         }
-      } catch {}
-    }
+      }
+    } catch {}
 
     // 3. Needs Attention
     let needsAttention: any[] = [];
@@ -251,6 +275,26 @@ export const getAdminDashboard = async (req: AuthenticatedRequest, res: Response
       `).all() as any[];
       mentorAssignments = mentors;
     }
+
+    // Dual-read: merge any SQLite-only mentors not in mentorAssignments
+    try {
+      const sqliteMentorRows = db.prepare(`
+        SELECT u.id, u.name, u.email, u.status,
+               COALESCE(mp.department, 'Computer Science') as department,
+               COUNT(t.id) as team_count
+        FROM users u
+        LEFT JOIN mentor_profiles mp ON u.id = mp.user_id
+        LEFT JOIN teams t ON u.id = t.mentor_id AND t.status = 'active'
+        WHERE u.role = 'mentor'
+        GROUP BY u.id
+      `).all() as any[];
+      const existingMentorEmails = new Set(mentorAssignments.map((m: any) => (m.email || '').toLowerCase()));
+      for (const row of sqliteMentorRows) {
+        if (!existingMentorEmails.has((row.email || '').toLowerCase())) {
+          mentorAssignments.push({ ...row, status: String(row.status || 'active').toLowerCase() });
+        }
+      }
+    } catch {}
 
     res.json({
       success: true,
