@@ -118,9 +118,12 @@ export const authenticate = async (
 
     const path = (req.originalUrl || req.url || '').split('?')[0];
     const isOnboardingRoute =
-      path.endsWith('/auth/me') ||
-      path.endsWith('/auth/change-password') ||
-      path.endsWith('/auth/logout');
+      path.includes('/auth/me') ||
+      path.includes('/auth/change-password') ||
+      path.includes('/auth/logout') ||
+      path.includes('/change-password') ||
+      path.includes('/me') ||
+      path.includes('/logout');
 
     // If user must change password, restrict them from protected operational routes
     if (userDoc.mustChangePassword && !isOnboardingRoute) {

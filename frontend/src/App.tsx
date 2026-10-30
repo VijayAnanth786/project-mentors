@@ -103,6 +103,11 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Do not run role-based redirection until the user identity is loaded
+    if (!currentUser?.id) {
+      return;
+    }
+
     if (currentUser?.mustChangePassword) {
       if (pathname !== '/login') {
         window.history.replaceState({}, '', '/login');
@@ -128,7 +133,7 @@ export const App: React.FC = () => {
 
   // Show a minimal loading screen while verifying session with server.
   // This prevents flashing the wrong role's dashboard for a split second.
-  if (isAuthLoading) {
+  if (isAuthLoading && !currentUser?.id) {
     return (
       <div style={{
         display: 'flex',

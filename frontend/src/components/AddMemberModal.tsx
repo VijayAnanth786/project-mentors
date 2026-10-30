@@ -20,7 +20,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   members,
   isLeader
 }) => {
-  const { addTeamMember, removeTeamMember, getAvailableStudents, currentUser } = useApp();
+  const { addTeamMember, removeTeamMember, getAvailableStudents, currentUser, showToast } = useApp();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,6 +43,12 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
+
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/i;
+    if (!gmailRegex.test(email.trim())) {
+      showToast('Students must have a valid @gmail.com address.', 'error');
+      return;
+    }
 
     setIsSubmitting(true);
     try {

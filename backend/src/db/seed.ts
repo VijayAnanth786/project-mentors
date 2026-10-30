@@ -238,11 +238,20 @@ export const runSeed = async (forceClean = false) => {
         );
       }
 
+      await User.updateMany(
+        { email: { $in: ['admin@gmail.com', 'admin@college.edu'] } },
+        { $set: { role: 'ADMIN', status: 'ACTIVE' } }
+      );
       console.log('[Seed] Base accounts and system settings verified in MongoDB Atlas.');
     } catch (mErr) {
       console.warn('[MongoDB Atlas Seed Warning]', mErr);
     }
   }
+
+  // Always enforce admin role for reserved admin emails
+  try {
+    db.prepare("UPDATE users SET role = 'admin', status = 'active' WHERE email IN ('admin@gmail.com', 'admin@college.edu')").run();
+  } catch {}
 
   console.log('[Seed] Base accounts verified: admin@gmail.com, vetri@gmail.com, vijay@gmail.com (password: siet@2727)');
 };

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, Project, ProgressSubmission, TeamCardData } from '../types';
 import { api } from '../api/client';
 import { Toast } from '../components/shared';
+import { pathToView } from '../components/navConfig';
 
 interface ToastState {
   message: string;
@@ -23,6 +24,7 @@ interface AppContextType {
     temporaryPasswordExpiresAt?: string | null;
   }>;
   applySession: (user: User, token: string) => void;
+  completePasswordChange: (user: User, token?: string) => void;
   googleLogin: (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => Promise<{
     success: boolean;
     message?: string;
@@ -56,22 +58,23 @@ const emptyUser: User = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 /** Derive the correct view key from a role string. */
-const viewForRole = (role: string): string => {
-  if (role === 'admin') return 'admin_dashboard';
-  if (role === 'mentor') return 'mentor_dashboard';
+export const viewForRole = (role: string): string => {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return 'admin_dashboard';
+  if (r === 'mentor') return 'mentor_dashboard';
   return 'home';
 };
 
 /** Derive the correct URL path from a role string. */
-const pathForRole = (role: string): string => {
-  if (role === 'admin') return '/admin/dashboard';
-  if (role === 'mentor') return '/mentor/dashboard';
+export const pathForRole = (role: string): string => {
+  const r = String(role || '').toLowerCase();
+  if (r === 'admin') return '/admin/dashboard';
+  if (r === 'mentor') return '/mentor/dashboard';
   return '/student/dashboard';
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Initialise from localStorage so the UI has the right role immediately,
-  // before the /api/auth/me response comes back.
+  // Initialize user synchronously from localStorage
   const [currentUser, setCurrentUser] = useState<User>(() => {
     try {
       const saved = localStorage.getItem('pm_user');
@@ -81,12 +84,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Start as 'loading' so App.tsx waits before routing.
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
-  const [activeView, setActiveView] = useState<string>('home');
-  const [toast, setToast] = useState<ToastState | null>(null);
+  // If a session already exists in localStorage, render immediately without blocking
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() => {
+    const token = localStorage.getItem('pm_auth_token');
+    const user = localStorage.getItem('pm_user');
+    return Boolean(token && !user);
+  });
 
-  // Student state starts completely clean (no demo mock data)
+  // Initialize activeView directly matching the current path
+  const [activeView, setActiveView] = useState<string>(() => {
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
+    if (pathToView[pathname]) return pathToView[pathname];
+    try {
+      const saved = localStorage.getItem('pm_user');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.mustChangePassword) return 'login';
+        return viewForRole(u.role);
+      }
+    } catch {}
+    return pathname === '/' || pathname === '/login' ? 'login' : 'home';
+  });
+
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [teams, setTeams] = useState<TeamCardData[]>([]);
   const [submissions, setSubmissions] = useState<ProgressSubmission[]>([]);
@@ -104,8 +124,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const data = await api.student.getDashboard();
 
       if (data?.studentProfile) {
-        // CRITICAL: never let studentProfile overwrite the authoritative role
-        // that was set by /api/auth/me or the login response.
         const { role: _ignored, ...safeProfile } = data.studentProfile as any;
         setCurrentUser((prev) => ({
           ...prev,
@@ -184,8 +202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   }, []);
 
-  // On mount: verify session with server and set the correct view immediately.
-  // isAuthLoading stays true until this resolves so App.tsx doesn't route early.
+  // Background session verification (stale-while-revalidate, non-blocking)
   useEffect(() => {
     const token = localStorage.getItem('pm_auth_token');
     if (!token) {
@@ -197,32 +214,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .then((res) => {
         if (res?.user) {
           const user = res.user;
-          // Server is the source of truth for role — overwrite localStorage.
+          const role = String(user.role || '').toLowerCase();
           setCurrentUser(user);
           localStorage.setItem('pm_user', JSON.stringify(user));
 
           if (user.mustChangePassword) {
             setActiveView('login');
-            window.history.replaceState({}, '', '/login');
+            if (window.location.pathname !== '/login') {
+              window.history.replaceState({}, '', '/login');
+            }
             return;
           }
 
-          const role = String(user.role || '').toLowerCase();
-
-          // Only redirect to role home if the current path doesn't already
-          // belong to this role (avoids clobbering a deep link on refresh).
           const pathname = window.location.pathname;
-          const correctPath = pathForRole(role);
-          const isOnWrongRole =
-            (role === 'admin' && !pathname.startsWith('/admin')) ||
-            (role === 'mentor' && !pathname.startsWith('/mentor')) ||
-            (role === 'student' && (pathname.startsWith('/admin') || pathname.startsWith('/mentor')));
-
-          if (isOnWrongRole || pathname === '/' || pathname === '/login' || pathname === '') {
+          if (pathname === '/' || pathname === '/login' || pathname === '') {
+            const correctPath = pathForRole(role);
             window.history.replaceState({}, '', correctPath);
             setActiveView(viewForRole(role));
           }
-          // else: keep the current path and activeView (user refreshed a valid deep link)
 
           if (role === 'student') {
             refreshStudentData();
@@ -230,11 +239,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
       })
-      .catch(() => {
-        localStorage.removeItem('pm_auth_token');
-        localStorage.removeItem('pm_user');
-        setActiveView('login');
-        window.history.replaceState({}, '', '/login');
+      .catch((err: any) => {
+        // ONLY log out if the server explicitly returned 401 Unauthorized (invalid JWT)
+        // Never log out on 429 (rate limit) or 503 (server spin-up) or network error
+        if (err?.response?.status === 401) {
+          localStorage.removeItem('pm_auth_token');
+          localStorage.removeItem('pm_user');
+          setCurrentUser(emptyUser);
+          setActiveView('login');
+          window.history.replaceState({}, '', '/login');
+        }
       })
       .finally(() => {
         setIsAuthLoading(false);
@@ -261,7 +275,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('pm_user', JSON.stringify(userWithFlag));
       setCurrentUser(userWithFlag);
 
-      // First login with a temporary password must not reach any dashboard.
       if (data.mustChangePassword) {
         setActiveView('login');
         window.history.replaceState({}, '', '/login');
@@ -291,6 +304,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message };
     }
   };
+
+  const applySession = useCallback((user: User, token: string) => {
+    localStorage.setItem('pm_auth_token', token);
+    localStorage.setItem('pm_user', JSON.stringify(user));
+    setCurrentUser(user);
+  }, []);
+
+  const completePasswordChange = useCallback((user: User, token?: string) => {
+    const cleanUser: User = {
+      ...user,
+      mustChangePassword: false,
+      role: (String(user.role || 'mentor').toLowerCase()) as any
+    };
+    if (token) {
+      localStorage.setItem('pm_auth_token', token);
+    }
+    localStorage.setItem('pm_user', JSON.stringify(cleanUser));
+    setCurrentUser(cleanUser);
+
+    const role = cleanUser.role;
+    const targetPath = pathForRole(role);
+    window.history.pushState({}, '', targetPath);
+    setActiveView(viewForRole(role));
+  }, []);
 
   const googleLogin = async (data: { credential?: string; accessToken?: string; email?: string; name?: string; avatar?: string; role?: string }) => {
     try {
@@ -427,12 +464,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const applySession = useCallback((user: User, token: string) => {
-    localStorage.setItem('pm_auth_token', token);
-    localStorage.setItem('pm_user', JSON.stringify(user));
-    setCurrentUser(user);
-  }, []);
-
   return (
     <AppContext.Provider
       value={{
@@ -443,6 +474,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAuthLoading,
         login,
         applySession,
+        completePasswordChange,
         googleLogin,
         logout,
         showToast,

@@ -45,7 +45,7 @@ const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' })
 );
 
 export const LoginView: React.FC = () => {
-  const { currentUser, login, applySession, googleLogin, setActiveView, showToast, setCurrentUser } = useApp();
+  const { currentUser, login, applySession, completePasswordChange, googleLogin, setActiveView, showToast, setCurrentUser } = useApp();
 
   // Mode: 'login' | 'register' | 'change_password'
   const [mode, setMode] = useState<'login' | 'register' | 'change_password'>('login');
@@ -259,9 +259,9 @@ export const LoginView: React.FC = () => {
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!regEmail.trim() || !emailRegex.test(regEmail.trim())) {
-      setSubmitError('Please enter a valid email address (e.g. yourname@gmail.com).');
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/i;
+    if (!regEmail.trim() || !gmailRegex.test(regEmail.trim())) {
+      setSubmitError('Students must register with a valid @gmail.com address.');
       return;
     }
 
@@ -348,31 +348,14 @@ export const LoginView: React.FC = () => {
 
       if (res.success) {
         const updatedUser = res.user || { ...(pendingUser || currentUser), mustChangePassword: false };
-        if (res.token) {
-          applySession(updatedUser, res.token);
-        } else {
-          setCurrentUser(updatedUser);
-          localStorage.setItem('pm_user', JSON.stringify(updatedUser));
-        }
-
         showToast('Password updated successfully! Welcome to your dashboard.', 'success');
-        setMode('login');
         setPendingUser(null);
         setPendingExpiry(null);
         setCurrentPassword('');
         setNewPassword('');
         setConfirmNewPassword('');
 
-        const role = String(updatedUser.role || '').toLowerCase();
-        const targetPath = role === 'admin' ? '/admin/dashboard' : role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard';
-        window.history.pushState({}, '', targetPath);
-
-        if (role === 'admin') setActiveView('admin_dashboard');
-        else if (role === 'mentor') setActiveView('mentor_dashboard');
-        else {
-          setActiveView('home');
-          window.dispatchEvent(new Event('session:changed'));
-        }
+        completePasswordChange(updatedUser, res.token);
       } else {
         setSubmitError(res.message || 'Password update failed.');
       }

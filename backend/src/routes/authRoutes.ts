@@ -5,14 +5,15 @@ import { authenticateJWT } from '../middleware/authMiddleware';
 
 const router = Router();
 
-// Login rate limiter: max 10 requests per 15 minutes per IP
+// Relaxed rate limiter to prevent locking out active users/testers on serverless proxies
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
+  max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 500),
+  skipSuccessfulRequests: true, // successful logins don't penalize the user
   message: {
     success: false,
     code: 'RATE_LIMITED',
-    message: 'Too many login attempts from this IP. Please try again after 15 minutes.'
+    message: 'Too many failed login attempts from this IP. Please try again after 15 minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -20,7 +21,8 @@ const loginLimiter = rateLimit({
 
 const changePasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: Number(process.env.CHANGE_PASSWORD_RATE_LIMIT_MAX || 5),
+  max: Number(process.env.CHANGE_PASSWORD_RATE_LIMIT_MAX || 100),
+  skipSuccessfulRequests: true,
   message: {
     success: false,
     code: 'RATE_LIMITED',
@@ -38,4 +40,3 @@ router.post('/change-password', changePasswordLimiter, authenticateJWT, changePa
 router.post('/logout', logout);
 
 export default router;
-

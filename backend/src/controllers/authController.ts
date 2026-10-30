@@ -8,6 +8,7 @@ import { db } from '../db/database';
 import { useMongo } from '../config/storageMode';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@gmail\.com$/i;
 const MAX_TEMP_ATTEMPTS = Number(process.env.TEMP_PASSWORD_MAX_ATTEMPTS || 5);
 
 const getJwtSecret = (): string => {
@@ -118,6 +119,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    if (!GMAIL_REGEX.test(normalizedEmail)) {
+      res.status(400).json({ success: false, message: "Students must register with a valid @gmail.com address (e.g. yourname@gmail.com)." });
+      return;
+    }
+
+    if (normalizedEmail === 'admin@gmail.com' || normalizedEmail === 'admin@college.edu' || normalizedEmail.startsWith('admin@')) {
+      res.status(400).json({ success: false, message: 'This email is reserved for system administration.' });
+      return;
+    }
     const passwordHash = await bcrypt.hash(password, 10);
     const avatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80';
     const normalizedDepartment = typeof department === 'string' && department.trim() ? department.trim() : 'Computer Science';
