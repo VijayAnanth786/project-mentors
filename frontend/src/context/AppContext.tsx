@@ -13,6 +13,7 @@ interface AppContextType {
   setCurrentUser: (user: User) => void;
   activeView: string;
   setActiveView: (view: string) => void;
+  isAuthLoading: boolean;
   login: (credentials: { email: string; password: string }) => Promise<{
     success: boolean;
     message?: string;
@@ -51,12 +52,34 @@ const emptyUser: User = {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+/** Derive the correct view key from a role string. */
+const viewForRole = (role: string): string => {
+  if (role === 'admin') return 'admin_dashboard';
+  if (role === 'mentor') return 'mentor_dashboard';
+  return 'home';
+};
+
+/** Derive the correct URL path from a role string. */
+const pathForRole = (role: string): string => {
+  if (role === 'admin') return '/admin/dashboard';
+  if (role === 'mentor') return '/mentor/dashboard';
+  return '/student/dashboard';
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Initialise from localStorage so the UI has the right role immediately,
+  // before the /api/auth/me response comes back.
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    const saved = localStorage.getItem('pm_user');
-    return saved ? JSON.parse(saved) : emptyUser;
+    try {
+      const saved = localStorage.getItem('pm_user');
+      return saved ? JSON.parse(saved) : emptyUser;
+    } catch {
+      return emptyUser;
+    }
   });
 
+  // Start as 'loading' so App.tsx waits before routing.
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [activeView, setActiveView] = useState<string>('home');
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -78,13 +101,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const data = await api.student.getDashboard();
 
       if (data?.studentProfile) {
+        // CRITICAL: never let studentProfile overwrite the authoritative role
+        // that was set by /api/auth/me or the login response.
+        const { role: _ignored, ...safeProfile } = data.studentProfile as any;
         setCurrentUser((prev) => ({
           ...prev,
-          ...data.studentProfile
+          ...safeProfile
         }));
         try {
           const existing = JSON.parse(localStorage.getItem('pm_user') || '{}');
-          localStorage.setItem('pm_user', JSON.stringify({ ...existing, ...data.studentProfile }));
+          localStorage.setItem('pm_user', JSON.stringify({ ...existing, ...safeProfile }));
         } catch {}
       }
 
@@ -152,31 +178,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   }, []);
 
-  // Sync session on mount with server /api/auth/me
+  // On mount: verify session with server and set the correct view immediately.
+  // isAuthLoading stays true until this resolves so App.tsx doesn't route early.
   useEffect(() => {
     const token = localStorage.getItem('pm_auth_token');
-    if (token) {
-      api.auth.getMe()
-        .then((res) => {
-          if (res?.user) {
-            setCurrentUser(res.user);
-            localStorage.setItem('pm_user', JSON.stringify(res.user));
-            if (res.user.mustChangePassword) {
-              setActiveView('login');
-              window.history.replaceState({}, '', '/login');
-              return;
-            }
-            if (res.user.role === 'student') {
-              refreshStudentData();
-              refreshTeams();
-            }
-          }
-        })
-        .catch(() => {
-          localStorage.removeItem('pm_auth_token');
-          localStorage.removeItem('pm_user');
-        });
+    if (!token) {
+      setIsAuthLoading(false);
+      return;
     }
+
+    api.auth.getMe()
+      .then((res) => {
+        if (res?.user) {
+          const user = res.user;
+          // Server is the source of truth for role — overwrite localStorage.
+          setCurrentUser(user);
+          localStorage.setItem('pm_user', JSON.stringify(user));
+
+          if (user.mustChangePassword) {
+            setActiveView('login');
+            window.history.replaceState({}, '', '/login');
+            return;
+          }
+
+          const role = String(user.role || '').toLowerCase();
+
+          // Only redirect to role home if the current path doesn't already
+          // belong to this role (avoids clobbering a deep link on refresh).
+          const pathname = window.location.pathname;
+          const correctPath = pathForRole(role);
+          const isOnWrongRole =
+            (role === 'admin' && !pathname.startsWith('/admin')) ||
+            (role === 'mentor' && !pathname.startsWith('/mentor')) ||
+            (role === 'student' && (pathname.startsWith('/admin') || pathname.startsWith('/mentor')));
+
+          if (isOnWrongRole || pathname === '/' || pathname === '/login' || pathname === '') {
+            window.history.replaceState({}, '', correctPath);
+            setActiveView(viewForRole(role));
+          }
+          // else: keep the current path and activeView (user refreshed a valid deep link)
+
+          if (role === 'student') {
+            refreshStudentData();
+            refreshTeams();
+          }
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('pm_auth_token');
+        localStorage.removeItem('pm_user');
+        setActiveView('login');
+        window.history.replaceState({}, '', '/login');
+      })
+      .finally(() => {
+        setIsAuthLoading(false);
+      });
 
     const handleUnauthorized = () => {
       setActiveView('login');
@@ -212,13 +268,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      const targetPath = data.redirectUrl || (data.user.role === 'admin' ? '/admin/dashboard' : data.user.role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard');
+      const role = String(data.user.role || '').toLowerCase();
+      const targetPath = data.redirectUrl || pathForRole(role);
       window.history.pushState({}, '', targetPath);
+      setActiveView(viewForRole(role));
 
-      if (data.user.role === 'admin') setActiveView('admin_dashboard');
-      else if (data.user.role === 'mentor') setActiveView('mentor_dashboard');
-      else {
-        setActiveView('home');
+      if (role === 'student') {
         refreshStudentData();
         refreshTeams();
       }
@@ -241,13 +296,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem('pm_user', JSON.stringify(res.user));
       setCurrentUser(res.user);
 
-      const targetPath = res.redirectUrl || (res.user.role === 'admin' ? '/admin/dashboard' : res.user.role === 'mentor' ? '/mentor/dashboard' : '/student/dashboard');
+      const role = String(res.user.role || '').toLowerCase();
+      const targetPath = res.redirectUrl || pathForRole(role);
       window.history.pushState({}, '', targetPath);
+      setActiveView(viewForRole(role));
 
-      if (res.user.role === 'admin') setActiveView('admin_dashboard');
-      else if (res.user.role === 'mentor') setActiveView('mentor_dashboard');
-      else {
-        setActiveView('home');
+      if (role === 'student') {
         refreshStudentData();
         refreshTeams();
       }
@@ -339,6 +393,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser,
         activeView,
         setActiveView,
+        isAuthLoading,
         login,
         applySession,
         googleLogin,

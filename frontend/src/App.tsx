@@ -46,8 +46,11 @@ const viewRole = (view: string): 'admin' | 'mentor' | 'student' | null => {
 };
 
 export const App: React.FC = () => {
-  const { activeView, setActiveView, currentUser } = useApp();
+  const { activeView, setActiveView, currentUser, isAuthLoading } = useApp();
 
+  // Sync URL path → activeView on first render and on browser back/forward.
+  // This effect intentionally runs before auth resolves so deep-linked URLs
+  // are remembered; the guard below prevents rendering the wrong role's view.
   React.useEffect(() => {
     const syncPath = () => {
       const pathname = window.location.pathname;
@@ -83,9 +86,11 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', syncPath);
   }, [setActiveView]);
 
-  // Route-level authorization. The server remains authoritative; this guard
-  // prevents a stale localStorage role from rendering another role's screens.
+  // Route-level authorization — runs only after auth has resolved so we never
+  // redirect an admin to the student dashboard due to a stale initial state.
   React.useEffect(() => {
+    if (isAuthLoading) return; // wait for server session check to complete
+
     const token = localStorage.getItem('pm_auth_token');
     const pathname = window.location.pathname;
     const role = String(currentUser?.role || '').toLowerCase();
@@ -119,7 +124,33 @@ export const App: React.FC = () => {
       window.history.replaceState({}, '', target);
       setActiveView(pathToView[target] || 'home');
     }
-  }, [activeView, currentUser, setActiveView]);
+  }, [activeView, currentUser, isAuthLoading, setActiveView]);
+
+  // Show a minimal loading screen while verifying session with server.
+  // This prevents flashing the wrong role's dashboard for a split second.
+  if (isAuthLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        background: '#f8fafc',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '3px solid #e2e8f0',
+          borderTop: '3px solid #6366f1',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite'
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   if (activeView === 'login') {
     return <LoginView />;
