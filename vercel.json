@@ -4,9 +4,14 @@
   "outputDirectory": "frontend/dist",
   "installCommand": "npm run install:all",
   "framework": null,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/:path*",
       "destination": "/api"
     },
     {
