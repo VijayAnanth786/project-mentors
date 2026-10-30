@@ -4,19 +4,23 @@ export type StorageMode = 'mongo' | 'sqlite' | 'auto';
 
 /**
  * DB_MODE controls which store is authoritative.
- * - mongo:  MongoDB is required. Startup fails if it is unavailable.
+ * - mongo:  MongoDB is required. Startup fails hard if Atlas is unreachable.
  * - sqlite: SQLite is authoritative, even if MongoDB happens to be reachable.
- * - auto:   Development convenience only. Prefers MongoDB when connected.
+ * - auto:   (default) Prefers MongoDB when connected, silently falls back to
+ *           SQLite when Atlas is unreachable (e.g. IP not whitelisted, env var
+ *           missing). The app stays online instead of returning a 503.
  *
- * Production defaults to mongo so a serverless instance can never silently
- * accept writes into an ephemeral SQLite file.
+ * Once Atlas is fully configured (IP whitelisted + MONGODB_URI set in Vercel),
+ * set DB_MODE=mongo in Vercel env vars to lock the app to Atlas exclusively.
  */
 export const getStorageMode = (): StorageMode => {
   const configured = String(process.env.DB_MODE || '').trim().toLowerCase();
   if (configured === 'mongo' || configured === 'sqlite' || configured === 'auto') {
     return configured;
   }
-  return process.env.NODE_ENV === 'production' ? 'mongo' : 'auto';
+  // Default 'auto': try MongoDB, silently fall back to SQLite if unreachable.
+  // This prevents a visible 503 when MONGODB_URI or Atlas whitelist is not set.
+  return 'auto';
 };
 
 export const isMongoMode = (): boolean => getStorageMode() === 'mongo';
